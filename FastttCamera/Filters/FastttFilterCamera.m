@@ -539,7 +539,7 @@
 #pragma mark - Capturing Video
 
 - (void)startRecordingVideo {
-    AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection
+    AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection;
 
     if ([videoConnection isVideoOrientationSupported]) {
         [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
@@ -566,16 +566,16 @@
 //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
 //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1080.0, 1920.0)];
     _movieWriter.encodingLiveVideo = YES;
-    [self.fastFilter.filter addTarget:movieWriter];
+    [self.fastFilter.filter addTarget: _movieWriter];
     
-    _stillCamera.audioEncodingTarget = movieWriter;
+    _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecording];
 }
 
 - (void)stopRecordingVideo {
-    [self.fastFilter.filter removeTarget:_movieWriter];
+    [self.fastFilter.filter removeTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = nil;
-    [movieWriter finishRecording];
+    [_movieWriter finishRecording];
 }
 
 #pragma mark - Processing a Photo
