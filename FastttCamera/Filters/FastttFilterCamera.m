@@ -577,7 +577,7 @@
     [self.fastFilter.filter removeTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = nil;
     [_movieWriter finishRecording];
-    _movieWriter = nil
+    _movieWriter = nil;
 }
 
 #pragma mark - Processing a Photo
