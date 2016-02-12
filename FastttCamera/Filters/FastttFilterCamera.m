@@ -23,6 +23,7 @@
 @property (nonatomic, strong) FastttFocus *fastFocus;
 @property (nonatomic, strong) FastttZoom *fastZoom;
 @property (nonatomic, strong) GPUImageStillCamera *stillCamera;
+@property (nonatomic, strong) GPUImageMovieWriter *movieWriter;
 @property (nonatomic, strong) FastttFilter *fastFilter;
 @property (nonatomic, strong) GPUImageView *previewView;
 @property (nonatomic, assign) BOOL deviceAuthorized;
@@ -532,6 +533,49 @@
         }
     }];
 #endif
+}
+
+
+#pragma mark - Capturing Video
+
+- (void)startRecordingVideo {
+    AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection
+
+    if ([videoConnection isVideoOrientationSupported]) {
+        [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
+    }
+
+    if ([videoConnection isVideoMirroringSupported]) {
+        [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
+    }
+
+    NSString *plistPath;
+    NSString *rootPath;
+    rootPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+    plistPath = [rootPath stringByAppendingPathComponent:@"temp.mov"];
+    NSURL *fileURL = [[NSURL alloc] initFileURLWithPath:plistPath];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([fileManager fileExistsAtPath:plistPath]) {
+        NSError *error;
+
+        [fileManager removeItemAtPath:[fileURL absoluteString] error:&error];
+    }
+    
+    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:fileURL size:CGSizeMake(480.0, 640.0)];
+//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(640.0, 480.0)];
+//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
+//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1080.0, 1920.0)];
+    _movieWriter.encodingLiveVideo = YES;
+    [self.fastFilter.filter addTarget:movieWriter];
+    
+    _stillCamera.audioEncodingTarget = movieWriter;
+    [_movieWriter startRecording];
+}
+
+- (void)stopRecordingVideo {
+    [self.fastFilter.filter removeTarget:_movieWriter];
+    _stillCamera.audioEncodingTarget = nil;
+    [movieWriter finishRecording];
 }
 
 #pragma mark - Processing a Photo
