@@ -566,6 +566,7 @@
 //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
 //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1080.0, 1920.0)];
     _movieWriter.encodingLiveVideo = YES;
+    _movieWriter.shouldPassthroughAudio = YES;
     [self.fastFilter.filter addTarget: _movieWriter];
     
     _stillCamera.audioEncodingTarget = _movieWriter;
@@ -576,6 +577,7 @@
     [self.fastFilter.filter removeTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = nil;
     [_movieWriter finishRecording];
+    _movieWriter = nil
 }
 
 #pragma mark - Processing a Photo
