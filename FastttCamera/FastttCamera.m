@@ -9,14 +9,12 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "FastttCamera.h"
-#import "IFTTTDeviceOrientation.h"
 #import "UIImage+FastttCamera.h"
 #import "AVCaptureDevice+FastttCamera.h"
-#import "FastttFocus.h"
 #import "FastttZoom.h"
 #import "FastttCapturedImage+Process.h"
 
-@interface FastttCamera () <FastttFocusDelegate, FastttZoomDelegate, AVCaptureFileOutputRecordingDelegate>
+@interface FastttCamera () <FastttFocusDelegate, FastttZoomDelegate>
 
 @property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
 @property (nonatomic, strong) FastttFocus *fastFocus;
