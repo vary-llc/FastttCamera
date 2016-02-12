@@ -17,7 +17,7 @@
 #import "FastttFilter.h"
 #import "FastttCapturedImage+Process.h"
 
-@interface FastttFilterCamera () <FastttFocusDelegate, FastttZoomDelegate>
+@interface FastttFilterCamera () <FastttFocusDelegate, FastttZoomDelegate, GPUImageVideoCameraDelegate>
 
 @property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
 @property (nonatomic, strong) FastttFocus *fastFocus;
@@ -861,6 +861,13 @@
 - (BOOL)handlePinchZoomWithScale:(CGFloat)zoomScale
 {
     return ([self zoomToScale:zoomScale] && self.showsZoomView);
+}
+
+#pragma mark - GPUImageVideoCameraDelegate
+
+- (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
+{
+
 }
 
 @end
