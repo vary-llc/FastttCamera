@@ -582,7 +582,7 @@
     
     [self.fastFilter.filter addTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = _movieWriter;
-    [_movieWriter startRecordingInOrientation:CGAffineTransformMakeRotation(M_PI * 0.0/180.0)];
+    [_movieWriter startRecording];
 }
 
 - (void)stopRecordingVideo {
