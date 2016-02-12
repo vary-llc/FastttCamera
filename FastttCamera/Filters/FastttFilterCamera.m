@@ -553,11 +553,21 @@
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
     NSURL *movieURL = [NSURL fileURLWithPath:pathToMovie];
     
-    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:_previewView.bounds.size];
-    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(480.0, 640.0)];
-    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(640.0, 480.0)];
-    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
-    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1920.0, 1080.0)];
+    _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+    
+    AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
+    NSDictionary* outputSettings = [output videoSettings];
+    
+    long width  = [[outputSettings objectForKey:@"Width"]  longValue];
+    long height = [[outputSettings objectForKey:@"Height"] longValue];
+    
+    if (UIInterfaceOrientationIsPortrait([_stillCamera outputImageOrientation])) {
+        long buf = width;
+        width = height;
+        height = buf;
+    }
+    
+    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(width, height)];
     _movieWriter.encodingLiveVideo = YES;
     _movieWriter.shouldPassthroughAudio = YES;
     
@@ -744,21 +754,21 @@
     switch (deviceOrientation) {
         case UIDeviceOrientationPortrait:
             return AVCaptureVideoOrientationLandscapeRight;
-
+            
         case UIDeviceOrientationPortraitUpsideDown:
-            return AVCaptureVideoOrientationLandscapeLeft;
-
+            return AVCaptureVideoOrientationLandscapeRight;
+            
         case UIDeviceOrientationLandscapeLeft:
-            return AVCaptureVideoOrientationPortrait;
+            return AVCaptureVideoOrientationLandscapeRight;
             
         case UIDeviceOrientationLandscapeRight:
-            return AVCaptureVideoOrientationPortraitUpsideDown;
+            return AVCaptureVideoOrientationLandscapeRight;
             
         default:
             break;
     }
     
-    return AVCaptureVideoOrientationPortrait;
+    return AVCaptureVideoOrientationLandscapeRight;
 }
 
 - (UIImageOrientation)_outputImageOrientation
