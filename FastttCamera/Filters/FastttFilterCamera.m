@@ -540,36 +540,43 @@
 
 - (void)startRecordingVideo {
     AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection;
-
+    
     if ([videoConnection isVideoOrientationSupported]) {
         [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
     }
-
+    
     if ([videoConnection isVideoMirroringSupported]) {
         [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
     }
-
+    
     NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
-    NSURL *fileURL = [NSURL fileURLWithPath:pathToMovie];
+    NSURL *movieURL = [NSURL fileURLWithPath:pathToMovie];
     
-    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:fileURL size:CGSizeMake(480.0, 640.0)];
-//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(640.0, 480.0)];
-//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
-//    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1080.0, 1920.0)];
+    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:_previewView.bounds.size];
+    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(480.0, 640.0)];
+    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(640.0, 480.0)];
+    //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(720.0, 1280.0)];
+    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(1920.0, 1080.0)];
     _movieWriter.encodingLiveVideo = YES;
     _movieWriter.shouldPassthroughAudio = YES;
-    [self.fastFilter.filter addTarget: _movieWriter];
     
+    __block FastttFilterCamera *blockSelf = self;
+    [_movieWriter setCompletionBlock:^{
+        blockSelf.stillCamera.audioEncodingTarget = nil;
+        [blockSelf.movieWriter finishRecording];
+        blockSelf.movieWriter = nil;
+        
+        [blockSelf.delegate cameraController:blockSelf didFinishRecordingVideo:movieURL];
+    }];
+    
+    [self.fastFilter.filter addTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecordingInOrientation:CGAffineTransformMakeRotation(M_PI * 0.0/180.0)];
 }
 
 - (void)stopRecordingVideo {
     [self.fastFilter.filter removeTarget: _movieWriter];
-    _stillCamera.audioEncodingTarget = nil;
-    [_movieWriter finishRecording];
-    _movieWriter = nil;
 }
 
 #pragma mark - Processing a Photo
