@@ -8,6 +8,8 @@
 
 #import <UIKit/UIKit.h>
 #import "FastttCameraInterface.h"
+#import "IFTTTDeviceOrientation.h"
+#import "FastttFocus.h"
 
 /**
  *  Public class for you to use to create a standard FastttCamera!
@@ -18,6 +20,6 @@
  *  @note If you want to use filters with your live camera preview,
  *  use an instance of FastttFilterCamera instead.
  */
-@interface FastttCamera : UIViewController <FastttCameraInterface>
+@interface FastttCamera : UIViewController <FastttCameraInterface, AVCaptureFileOutputRecordingDelegate>
 
 @end
