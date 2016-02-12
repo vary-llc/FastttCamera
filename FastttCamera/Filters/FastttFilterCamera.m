@@ -570,7 +570,7 @@
     [self.fastFilter.filter addTarget: _movieWriter];
     
     _stillCamera.audioEncodingTarget = _movieWriter;
-    [_movieWriter startRecordingInOrientation:CGAffineTransformMakeRotation(M_PI * 90.0/180.0)];
+    [_movieWriter startRecordingInOrientation:CGAffineTransformMakeRotation(M_PI * 0.0/180.0)];
 }
 
 - (void)stopRecordingVideo {
@@ -744,16 +744,16 @@
 {
     switch (deviceOrientation) {
         case UIDeviceOrientationPortrait:
+            return AVCaptureVideoOrientationLandscapeRight;
+
+        case UIDeviceOrientationPortraitUpsideDown:
+            return AVCaptureVideoOrientationLandscapeLeft;
+
+        case UIDeviceOrientationLandscapeLeft:
             return AVCaptureVideoOrientationPortrait;
             
-        case UIDeviceOrientationPortraitUpsideDown:
-            return AVCaptureVideoOrientationPortraitUpsideDown;
-            
-        case UIDeviceOrientationLandscapeLeft:
-            return AVCaptureVideoOrientationLandscapeRight;
-            
         case UIDeviceOrientationLandscapeRight:
-            return AVCaptureVideoOrientationLandscapeLeft;
+            return AVCaptureVideoOrientationPortraitUpsideDown;
             
         default:
             break;
