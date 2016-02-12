@@ -549,17 +549,9 @@
         [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
     }
 
-    NSString *plistPath;
-    NSString *rootPath;
-    rootPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
-    plistPath = [rootPath stringByAppendingPathComponent:@"temp.mov"];
-    NSURL *fileURL = [[NSURL alloc] initFileURLWithPath:plistPath];
-    NSFileManager *fileManager = [NSFileManager defaultManager];
-    if ([fileManager fileExistsAtPath:plistPath]) {
-        NSError *error;
-
-        [fileManager removeItemAtPath:[fileURL absoluteString] error:&error];
-    }
+    NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
+    unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
+    NSURL *fileURL = [NSURL fileURLWithPath:pathToMovie];
     
     _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:fileURL size:CGSizeMake(480.0, 640.0)];
 //    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(640.0, 480.0)];
