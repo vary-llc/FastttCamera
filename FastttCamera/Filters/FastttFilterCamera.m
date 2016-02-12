@@ -687,6 +687,19 @@
     _stillCamera.outputImageOrientation = (UIInterfaceOrientation)orientation;
 }
 
+- (AVCaptureVideoOrientation)_currentCaptureVideoOrientationForDevice
+{
+    UIDeviceOrientation actualOrientation = self.deviceOrientation.orientation;
+    
+    if (actualOrientation == UIDeviceOrientationFaceDown
+        || actualOrientation == UIDeviceOrientationFaceUp
+        || actualOrientation == UIDeviceOrientationUnknown) {
+        return [self _currentPreviewVideoOrientationForDevice];
+    }
+    
+    return [self.class _videoOrientationForDeviceOrientation:actualOrientation];
+}
+
 - (UIDeviceOrientation)_currentPreviewDeviceOrientation
 {
     if (!self.interfaceRotatesWithOrientation) {
@@ -716,6 +729,35 @@
     }
     
     return UIImageOrientationRight;
+}
+
+- (AVCaptureVideoOrientation)_currentPreviewVideoOrientationForDevice
+{
+    UIDeviceOrientation deviceOrientation = [self _currentPreviewDeviceOrientation];
+
+    return [self.class _videoOrientationForDeviceOrientation:deviceOrientation];
+}
+
++ (AVCaptureVideoOrientation)_videoOrientationForDeviceOrientation:(UIDeviceOrientation)deviceOrientation
+{
+    switch (deviceOrientation) {
+        case UIDeviceOrientationPortrait:
+            return AVCaptureVideoOrientationPortrait;
+            
+        case UIDeviceOrientationPortraitUpsideDown:
+            return AVCaptureVideoOrientationPortraitUpsideDown;
+            
+        case UIDeviceOrientationLandscapeLeft:
+            return AVCaptureVideoOrientationLandscapeRight;
+            
+        case UIDeviceOrientationLandscapeRight:
+            return AVCaptureVideoOrientationLandscapeLeft;
+            
+        default:
+            break;
+    }
+    
+    return AVCaptureVideoOrientationPortrait;
 }
 
 - (UIImageOrientation)_outputImageOrientation
