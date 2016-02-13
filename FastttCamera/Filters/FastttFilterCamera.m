@@ -26,31 +26,33 @@
 @property (nonatomic, strong) GPUImageMovieWriter *movieWriter;
 @property (nonatomic, strong) FastttFilter *fastFilter;
 @property (nonatomic, strong) GPUImageView *previewView;
+@property (nonatomic, strong) GPUImageCropFilter *cropFilter;
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
+@property (nonatomic, strong) NSURL *movieURL;
 
 @end
 
 @implementation FastttFilterCamera
 
 @synthesize delegate = _delegate,
-            returnsRotatedPreview = _returnsRotatedPreview,
-            showsFocusView = _showsFocusView,
-            maxScaledDimension = _maxScaledDimension,
-            normalizesImageOrientations = _normalizesImageOrientations,
-            cropsImageToVisibleAspectRatio = _cropsImageToVisibleAspectRatio,
-            interfaceRotatesWithOrientation = _interfaceRotatesWithOrientation,
-            fixedInterfaceOrientation = _fixedInterfaceOrientation,
-            handlesTapFocus = _handlesTapFocus,
-            handlesZoom = _handlesZoom,
-            maxZoomFactor = _maxZoomFactor,
-            showsZoomView = _showsZoomView,
-            gestureView = _gestureView,
-            gestureDelegate = _gestureDelegate,
-            scalesImage = _scalesImage,
-            cameraDevice = _cameraDevice,
-            cameraFlashMode = _cameraFlashMode,
-            cameraTorchMode = _cameraTorchMode;
+returnsRotatedPreview = _returnsRotatedPreview,
+showsFocusView = _showsFocusView,
+maxScaledDimension = _maxScaledDimension,
+normalizesImageOrientations = _normalizesImageOrientations,
+cropsImageToVisibleAspectRatio = _cropsImageToVisibleAspectRatio,
+interfaceRotatesWithOrientation = _interfaceRotatesWithOrientation,
+fixedInterfaceOrientation = _fixedInterfaceOrientation,
+handlesTapFocus = _handlesTapFocus,
+handlesZoom = _handlesZoom,
+maxZoomFactor = _maxZoomFactor,
+showsZoomView = _showsZoomView,
+gestureView = _gestureView,
+gestureDelegate = _gestureDelegate,
+scalesImage = _scalesImage,
+cameraDevice = _cameraDevice,
+cameraFlashMode = _cameraFlashMode,
+cameraTorchMode = _cameraTorchMode;
 
 - (instancetype)init
 {
@@ -112,7 +114,7 @@
     _fastFocus = nil;
     _fastFilter = nil;
     _fastZoom = nil;
-
+    
     [self _teardownCaptureSession];
     
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -333,7 +335,7 @@
         [device setCameraFlashMode:cameraFlashMode];
         return;
     }
-
+    
     _cameraFlashMode = FastttCameraFlashModeOff;
 }
 
@@ -441,7 +443,7 @@
         if (_deviceAuthorized) {
             
             dispatch_async(dispatch_get_main_queue(), ^{
-    
+                
                 if (_stillCamera) {
                     return;
                 }
@@ -474,7 +476,7 @@
                 [self setCameraFlashMode:_cameraFlashMode];
                 
                 _deviceOrientation = [IFTTTDeviceOrientation new];
-               
+                
                 if (self.isViewLoaded && self.view.window) {
                     [self _insertPreviewLayer];
                     [self startRunning];
@@ -523,9 +525,9 @@
 #else
     
     UIDeviceOrientation previewOrientation = [self _currentPreviewDeviceOrientation];
-
+    
     UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
-
+    
     [_stillCamera capturePhotoAsImageProcessedUpToFilter:self.fastFilter.filter withOrientation:UIImageOrientationUp withCompletionHandler:^(UIImage *processedImage, NSError *error){
         
         if (self.isCapturingImage) {
@@ -551,7 +553,7 @@
     
     NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
-    NSURL *movieURL = [NSURL fileURLWithPath:pathToMovie];
+    _movieURL = [NSURL fileURLWithPath:pathToMovie];
     
     _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
     
@@ -567,18 +569,9 @@
         height = buf;
     }
     
-    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(width, height)];
+    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, height)];
     _movieWriter.encodingLiveVideo = YES;
     _movieWriter.shouldPassthroughAudio = YES;
-    
-    __block FastttFilterCamera *blockSelf = self;
-    [_movieWriter setCompletionBlock:^{
-        blockSelf.stillCamera.audioEncodingTarget = nil;
-        [blockSelf.movieWriter finishRecording];
-        blockSelf.movieWriter = nil;
-        
-        [blockSelf.delegate cameraController:blockSelf didFinishRecordingVideo:movieURL];
-    }];
     
     [self.fastFilter.filter addTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = _movieWriter;
@@ -586,7 +579,16 @@
 }
 
 - (void)stopRecordingVideo {
-    [self.fastFilter.filter removeTarget: _movieWriter];
+    [_movieWriter finishRecordingWithCompletionHandler:^{
+        [self.fastFilter.filter removeTarget:_movieWriter];
+        
+        _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+        _stillCamera.audioEncodingTarget = nil;
+        [_movieWriter finishRecording];
+        _movieWriter = nil;
+        
+        [self _processCameraVideo];
+    }];
 }
 
 #pragma mark - Processing a Photo
@@ -615,7 +617,7 @@
         }
         
         UIImage *fixedOrientationImage = [image fastttRotatedImageMatchingOrientation:imageOrientation];
-
+        
         FastttCapturedImage *capturedImage = [FastttCapturedImage fastttCapturedFullImage:fixedOrientationImage];
         
         [capturedImage cropToRect:cropRect
@@ -677,6 +679,124 @@
         
         self.isCapturingImage = NO;
     });
+}
+
+#pragma mark - Processing a Video
+
+- (void)_processCameraVideo {
+    // output file
+    NSString* docFolder = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) lastObject];
+    NSString* outputPath = [docFolder stringByAppendingPathComponent:@"Output.mov"];
+    if ([[NSFileManager defaultManager] fileExistsAtPath:outputPath])
+        [[NSFileManager defaultManager] removeItemAtPath:outputPath error:nil];
+    NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
+    
+    // input file
+    AVAsset* asset = [AVAsset assetWithURL:_movieURL];
+    
+    AVMutableComposition *composition = [AVMutableComposition composition];
+    [composition  addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+    
+    // input clip
+    AVAssetTrack *videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+    
+    // crop clip to screen ratio
+    UIInterfaceOrientation orientation = [self orientationForTrack:asset];
+    BOOL isPortrait = (orientation == UIInterfaceOrientationPortrait || orientation == UIInterfaceOrientationPortraitUpsideDown) ? YES: NO;
+    CGFloat complimentSize = [self getComplimentSize:videoTrack.naturalSize.width];
+    CGSize videoSize;
+    
+    if(isPortrait) {
+        videoSize = CGSizeMake(complimentSize, videoTrack.naturalSize.width);
+    } else {
+        videoSize = CGSizeMake(videoTrack.naturalSize.width, complimentSize);
+    }
+    
+    AVMutableVideoComposition* videoComposition = [AVMutableVideoComposition videoComposition];
+    videoComposition.renderSize = videoSize;
+    videoComposition.frameDuration = CMTimeMake(1, 30);
+    
+    AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(60, 30) );
+    
+    // rotate and position video
+    AVMutableVideoCompositionLayerInstruction* transformer = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
+    
+    CGFloat tx = (videoTrack.naturalSize.height-complimentSize)/2;
+    
+    if (orientation == UIInterfaceOrientationPortrait || orientation == UIInterfaceOrientationLandscapeRight) {
+        // invert translation
+        tx *= -1;
+    }
+    
+    // t1: rotate and position video since it may have been cropped to screen ratio
+    CGAffineTransform t1 = CGAffineTransformTranslate(videoTrack.preferredTransform, 0, tx);
+    // t2/t3: mirror video horizontally
+    //CGAffineTransform t2 = CGAffineTransformTranslate(t1, isPortrait?0:videoTrack.naturalSize.width, isPortrait?videoTrack.naturalSize.height:0);
+    //CGAffineTransform t3 = CGAffineTransformScale(t2, isPortrait?1:-1, isPortrait?-1:1);
+    
+    [transformer setTransform:t1 atTime:kCMTimeZero];
+    instruction.layerInstructions = [NSArray arrayWithObject: transformer];
+    videoComposition.instructions = [NSArray arrayWithObject: instruction];
+    
+    // export
+    AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetHighestQuality] ;
+    exporter.videoComposition = videoComposition;
+    exporter.outputURL = outputURL;
+    exporter.outputFileType = AVFileTypeQuickTimeMovie;
+    
+    [exporter exportAsynchronouslyWithCompletionHandler:^(void){
+        NSLog(@"Exporting done!");
+        
+        [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
+    }];
+}
+
+- (CGFloat)getComplimentSize:(CGFloat)size {
+    CGSize previewSize = _previewView.bounds.size;
+    
+    if (_stillCamera.outputImageOrientation == UIImageOrientationRight
+        || _stillCamera.outputImageOrientation == UIImageOrientationLeft
+        || _stillCamera.outputImageOrientation == UIImageOrientationRightMirrored
+        || _stillCamera.outputImageOrientation == UIImageOrientationLeftMirrored) {
+        
+        previewSize = CGSizeMake(previewSize.height, previewSize.width);
+    }
+    
+    CGFloat ratio = previewSize.height / previewSize.width;
+    
+    // we have to adjust the ratio for 16:9 screens
+    if (ratio == 1.775) ratio = 1.77777777777778;
+    
+    return size * ratio;
+}
+
+- (UIInterfaceOrientation)orientationForTrack:(AVAsset *)asset {
+    UIInterfaceOrientation orientation = UIInterfaceOrientationPortrait;
+    NSArray *tracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+    
+    if([tracks count] > 0) {
+        AVAssetTrack *videoTrack = [tracks objectAtIndex:0];
+        CGAffineTransform t = videoTrack.preferredTransform;
+        
+        // Portrait
+        if(t.a == 0 && t.b == 1.0 && t.c == -1.0 && t.d == 0) {
+            orientation = UIInterfaceOrientationPortrait;
+        }
+        // PortraitUpsideDown
+        if(t.a == 0 && t.b == -1.0 && t.c == 1.0 && t.d == 0) {
+            orientation = UIInterfaceOrientationPortraitUpsideDown;
+        }
+        // LandscapeRight
+        if(t.a == 1.0 && t.b == 0 && t.c == 0 && t.d == 1.0) {
+            orientation = UIInterfaceOrientationLandscapeRight;
+        }
+        // LandscapeLeft
+        if(t.a == -1.0 && t.b == 0 && t.c == 0 && t.d == -1.0) {
+            orientation = UIInterfaceOrientationLandscapeLeft;
+        }
+    }
+    return orientation;
 }
 
 #pragma mark - AV Orientation
@@ -745,7 +865,7 @@
 - (AVCaptureVideoOrientation)_currentPreviewVideoOrientationForDevice
 {
     UIDeviceOrientation deviceOrientation = [self _currentPreviewDeviceOrientation];
-
+    
     return [self.class _videoOrientationForDeviceOrientation:deviceOrientation];
 }
 
@@ -876,7 +996,7 @@
 
 - (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
 {
-
+    
 }
 
 @end
