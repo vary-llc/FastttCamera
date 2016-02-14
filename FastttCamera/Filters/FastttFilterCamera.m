@@ -558,9 +558,11 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
     }
     
+    /*
     if ([videoConnection isVideoMirroringSupported]) {
         [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
     }
+    */
     
     NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
@@ -573,10 +575,11 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
         [self zoomToScale:_currentZoomScale];
     }
-    
+    /*
     if (_cameraDevice == FastttCameraDeviceFront) {
         _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
     }
+    */
     
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
@@ -771,10 +774,12 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     [exporter exportAsynchronouslyWithCompletionHandler:^(void){
         NSLog(@"Exporting done!");
+        /*
         if (_cameraDevice == FastttCameraDeviceFront) {
             [self _teardownCaptureSession];
             [self _setupCaptureSession];
         }
+        */
         
         [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
     }];
