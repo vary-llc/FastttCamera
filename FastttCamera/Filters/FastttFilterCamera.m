@@ -573,10 +573,10 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
         [self zoomToScale:_currentZoomScale];
     }
-    /*    if (_cameraDevice == FastttCameraDeviceFront) {
-     _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
-     }
-     */
+    
+    if (_cameraDevice == FastttCameraDeviceFront) {
+        _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
+    }
     
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
@@ -771,10 +771,10 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     [exporter exportAsynchronouslyWithCompletionHandler:^(void){
         NSLog(@"Exporting done!");
-        /*        if (_cameraDevice == FastttCameraDeviceFront) {
-         [self _teardownCaptureSession];
-         [self _setupCaptureSession];
-         }*/
+        if (_cameraDevice == FastttCameraDeviceFront) {
+            [self _teardownCaptureSession];
+            [self _setupCaptureSession];
+        }
         
         [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
     }];
