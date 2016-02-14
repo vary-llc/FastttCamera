@@ -566,12 +566,17 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
     _movieURL = [NSURL fileURLWithPath:pathToMovie];
     
-    if (_cameraDevice == FastttCameraDeviceFront) {
-        _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
-    }
+    NSLog(@"%f", _previewView.bounds.size.height/_previewView.bounds.size.width);
+    CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
     
-    _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
-    [self zoomToScale:_currentZoomScale];
+    if (ratio >= 1.5) {
+        _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+        [self zoomToScale:_currentZoomScale];
+    }
+    /*    if (_cameraDevice == FastttCameraDeviceFront) {
+     _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
+     }
+     */
     
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
@@ -601,8 +606,12 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         _movieWriter = nil;
         [self _processCameraVideo];
         
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-        [self zoomToScale:_currentZoomScale];
+        CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+        
+        if (ratio >= 1.5) {
+            _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+            [self zoomToScale:_currentZoomScale];
+        }
     }];
 }
 
@@ -762,10 +771,10 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     [exporter exportAsynchronouslyWithCompletionHandler:^(void){
         NSLog(@"Exporting done!");
-        if (_cameraDevice == FastttCameraDeviceFront) {
-            [self _teardownCaptureSession];
-            [self _setupCaptureSession];
-        }
+        /*        if (_cameraDevice == FastttCameraDeviceFront) {
+         [self _teardownCaptureSession];
+         [self _setupCaptureSession];
+         }*/
         
         [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
     }];
