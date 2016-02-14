@@ -30,6 +30,7 @@
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
 @property (nonatomic, strong) NSURL *movieURL;
+@property (nonatomic, assign) CGFloat currentZoomScale;
 
 @end
 
@@ -52,7 +53,10 @@ gestureDelegate = _gestureDelegate,
 scalesImage = _scalesImage,
 cameraDevice = _cameraDevice,
 cameraFlashMode = _cameraFlashMode,
-cameraTorchMode = _cameraTorchMode;
+cameraTorchMode = _cameraTorchMode,
+normalizesVideoOrientation = _normalizesVideoOrientation,
+cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
+
 
 - (instancetype)init
 {
@@ -66,9 +70,11 @@ cameraTorchMode = _cameraTorchMode;
         _maxZoomFactor = 1.f;
         _showsZoomView = YES;
         _cropsImageToVisibleAspectRatio = YES;
+        _cropsVideoToVisibleAspectRatio = YES;
         _scalesImage = YES;
         _maxScaledDimension = 0.f;
         _normalizesImageOrientations = YES;
+        _normalizesVideoOrientation = YES;
         _returnsRotatedPreview = YES;
         _interfaceRotatesWithOrientation = YES;
         _fixedInterfaceOrientation = UIDeviceOrientationPortrait;
@@ -265,6 +271,7 @@ cameraTorchMode = _cameraTorchMode;
 
 - (BOOL)zoomToScale:(CGFloat)scale
 {
+    _currentZoomScale = scale;
     return [[self _currentCameraDevice] zoomToScale:scale];
 }
 
@@ -380,6 +387,10 @@ cameraTorchMode = _cameraTorchMode;
 - (void)stopRunning
 {
     [_stillCamera stopCameraCapture];
+    
+    if (_movieWriter) {
+        [self stopRecordingVideo];
+    }
 }
 
 - (void)_insertPreviewLayer
@@ -555,7 +566,12 @@ cameraTorchMode = _cameraTorchMode;
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
     _movieURL = [NSURL fileURLWithPath:pathToMovie];
     
+    if (_cameraDevice == FastttCameraDeviceFront) {
+        _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
+    }
+    
     _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+    [self zoomToScale:_currentZoomScale];
     
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
@@ -571,23 +587,22 @@ cameraTorchMode = _cameraTorchMode;
     
     _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, height)];
     _movieWriter.encodingLiveVideo = YES;
-    _movieWriter.shouldPassthroughAudio = YES;
     
     [self.fastFilter.filter addTarget: _movieWriter];
     _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecording];
+    
 }
 
 - (void)stopRecordingVideo {
     [_movieWriter finishRecordingWithCompletionHandler:^{
         [self.fastFilter.filter removeTarget:_movieWriter];
+        _stillCamera.audioEncodingTarget = nil;
+        _movieWriter = nil;
+        [self _processCameraVideo];
         
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-        _stillCamera.audioEncodingTarget = nil;
-        [_movieWriter finishRecording];
-        _movieWriter = nil;
-        
-        [self _processCameraVideo];
+        [self zoomToScale:_currentZoomScale];
     }];
 }
 
@@ -717,7 +732,7 @@ cameraTorchMode = _cameraTorchMode;
     videoComposition.frameDuration = CMTimeMake(1, 30);
     
     AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, CMTimeMakeWithSeconds(60, 30) );
+    instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration);
     
     // rotate and position video
     AVMutableVideoCompositionLayerInstruction* transformer = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
@@ -747,6 +762,10 @@ cameraTorchMode = _cameraTorchMode;
     
     [exporter exportAsynchronouslyWithCompletionHandler:^(void){
         NSLog(@"Exporting done!");
+        if (_cameraDevice == FastttCameraDeviceFront) {
+            [self _teardownCaptureSession];
+            [self _setupCaptureSession];
+        }
         
         [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
     }];
