@@ -904,24 +904,31 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 
 + (AVCaptureVideoOrientation)_videoOrientationForDeviceOrientation:(UIDeviceOrientation)deviceOrientation
 {
+    AVCaptureVideoOrientation videoOrientation = AVCaptureVideoOrientationLandscapeRight;
+    if (_cameraDevice == FastttCameraDeviceFront) {
+        videoOrientation = AVCaptureVideoOrientationLandscapeLeft;
+    }
+    
+    /*
     switch (deviceOrientation) {
         case UIDeviceOrientationPortrait:
-            return AVCaptureVideoOrientationLandscapeRight;
+            return videoOrientation;
             
         case UIDeviceOrientationPortraitUpsideDown:
-            return AVCaptureVideoOrientationLandscapeRight;
+            return videoOrientation;
             
         case UIDeviceOrientationLandscapeLeft:
-            return AVCaptureVideoOrientationLandscapeRight;
+            return videoOrientation;
             
         case UIDeviceOrientationLandscapeRight:
-            return AVCaptureVideoOrientationLandscapeRight;
+            return videoOrientation;
             
         default:
             break;
     }
+    */
     
-    return AVCaptureVideoOrientationLandscapeRight;
+    return videoOrientation;
 }
 
 - (UIImageOrientation)_outputImageOrientation
