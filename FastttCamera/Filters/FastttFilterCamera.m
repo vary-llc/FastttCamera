@@ -58,6 +58,7 @@ cameraTorchMode = _cameraTorchMode,
 normalizesVideoOrientation = _normalizesVideoOrientation,
 cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 
+
 - (instancetype)init
 {
     if ((self = [super init])) {
@@ -1067,6 +1068,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     self.isTakingPhotoSilent = NO;
     
+    sleep(1);
+    
     BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
 #if TARGET_IPHONE_SIMULATOR
     UIImage *fakeImage = [UIImage fastttFakeTestImage];
@@ -1077,10 +1080,14 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
     
     [self.fastFilter.filter useNextFrameForImageCapture];
+    
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
     
     UIImage *currentFilteredImage = [self.fastFilter.filter imageFromCurrentFramebuffer];
+    
     [self _processCameraPhoto:currentFilteredImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+    
+    
 #endif
 }
 
