@@ -51,4 +51,8 @@
  */
 + (instancetype)cameraWithFilterImage:(UIImage *)filterImage;
 
+
+- (void)takePictureSilent;
+
+
 @end

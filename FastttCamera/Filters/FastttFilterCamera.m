@@ -29,6 +29,7 @@
 @property (nonatomic, strong) GPUImageCropFilter *cropFilter;
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
+@property (nonatomic, assign) BOOL isTakingPhotoSilent;
 @property (nonatomic, strong) NSURL *movieURL;
 @property (nonatomic, assign) CGFloat currentZoomScale;
 
@@ -56,7 +57,6 @@ cameraFlashMode = _cameraFlashMode,
 cameraTorchMode = _cameraTorchMode,
 normalizesVideoOrientation = _normalizesVideoOrientation,
 cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
-
 
 - (instancetype)init
 {
@@ -229,6 +229,15 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     }
     
     [self _takePhoto];
+}
+
+- (void)takePictureSilent
+{
+    if (!_deviceAuthorized) {
+        return;
+    }
+    
+    [self _takePhotoSilent];
 }
 
 - (void)cancelImageProcessing
@@ -470,6 +479,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                 _stillCamera = [[GPUImageStillCamera alloc] initWithSessionPreset:AVCaptureSessionPresetPhoto cameraPosition:position];
                 _stillCamera.outputImageOrientation = UIInterfaceOrientationPortrait;
                 //_stillCamera.horizontallyMirrorFrontFacingCamera = YES;
+                _stillCamera.delegate = self;
                 
                 switch (position) {
                     case AVCaptureDevicePositionBack:
@@ -548,6 +558,14 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 #endif
 }
 
+- (void)_takePhotoSilent
+{
+    if (self.isCapturingImage) {
+        return;
+    }
+    self.isCapturingImage = YES;
+    self.isTakingPhotoSilent = YES;
+}
 
 #pragma mark - Capturing Video
 
@@ -861,25 +879,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     _stillCamera.outputImageOrientation = (UIInterfaceOrientation)orientation;
 }
 
-- (AVCaptureVideoOrientation)_currentCaptureVideoOrientationForDevice
-{
-    /*    UIDeviceOrientation actualOrientation = self.deviceOrientation.orientation;
-     
-     if (actualOrientation == UIDeviceOrientationFaceDown
-     || actualOrientation == UIDeviceOrientationFaceUp
-     || actualOrientation == UIDeviceOrientationUnknown) {
-     return [self _currentPreviewVideoOrientationForDevice];
-     }
-     */
-    AVCaptureVideoOrientation videoOrientation = AVCaptureVideoOrientationLandscapeRight;
-    if (_cameraDevice == FastttCameraDeviceFront) {
-        videoOrientation = AVCaptureVideoOrientationLandscapeLeft;
-    }
-    
-    return videoOrientation;
-    //return [self.class _videoOrientationForDeviceOrientation:actualOrientation];
-}
-
 - (UIDeviceOrientation)_currentPreviewDeviceOrientation
 {
     if (!self.interfaceRotatesWithOrientation) {
@@ -909,6 +908,16 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     }
     
     return UIImageOrientationRight;
+}
+
+- (AVCaptureVideoOrientation)_currentCaptureVideoOrientationForDevice
+{
+    AVCaptureVideoOrientation videoOrientation = AVCaptureVideoOrientationLandscapeRight;
+    if (_cameraDevice == FastttCameraDeviceFront) {
+        videoOrientation = AVCaptureVideoOrientationLandscapeLeft;
+    }
+    
+    return videoOrientation;
 }
 
 - (AVCaptureVideoOrientation)_currentPreviewVideoOrientationForDevice
@@ -1050,9 +1059,29 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 
 #pragma mark - GPUImageVideoCameraDelegate
 
-- (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer
-{
+- (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer {
     
+    if (!self.isTakingPhotoSilent) {
+        return;
+    }
+    
+    self.isTakingPhotoSilent = NO;
+    
+    BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
+#if TARGET_IPHONE_SIMULATOR
+    UIImage *fakeImage = [UIImage fastttFakeTestImage];
+    [self _processCameraPhoto:fakeImage needsPreviewRotation:needsPreviewRotation imageOrientation:UIImageOrientationUp previewOrientation:UIDeviceOrientationPortrait];
+#else
+    UIDeviceOrientation previewOrientation = [self _currentPreviewDeviceOrientation];
+    
+    UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
+    
+    [self.fastFilter.filter useNextFrameForImageCapture];
+    [_stillCamera processVideoSampleBuffer: sampleBuffer];
+    
+    UIImage *currentFilteredImage = [self.fastFilter.filter imageFromCurrentFramebuffer];
+    [self _processCameraPhoto:currentFilteredImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+#endif
 }
 
 @end
