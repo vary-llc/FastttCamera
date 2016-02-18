@@ -15,7 +15,7 @@ Pod::Spec.new do |s|
   s.platform         = :ios, '7.0'
   s.requires_arc     = true
   s.compiler_flags   = '-fmodules'
-  s.frameworks       = 'UIKit', 'AVFoundation', 'CoreMotion'
+  s.frameworks       = 'UIKit', 'AVFoundation', 'CoreMotion', 'ImageIO', 'MobileCoreServices'
 
   s.subspec 'Default' do |ss|
     ss.source_files     = 'FastttCamera/*.{h,m}'
