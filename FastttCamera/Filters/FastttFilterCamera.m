@@ -8,6 +8,8 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <GPUImage/GPUImage.h>
+#import <ImageIO/ImageIO.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 #import "FastttFilterCamera.h"
 #import "IFTTTDeviceOrientation.h"
 #import "UIImage+FastttCamera.h"
@@ -32,6 +34,7 @@
 @property (nonatomic, assign) BOOL isTakingPhotoSilent;
 @property (nonatomic, strong) NSURL *movieURL;
 @property (nonatomic, assign) CGFloat currentZoomScale;
+@property (nonatomic, strong) NSDictionary *currentMetadata;
 
 @end
 
@@ -594,12 +597,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         [self zoomToScale:_currentZoomScale];
     }
     
-    /*
-     if (_cameraDevice == FastttCameraDeviceFront) {
-     _stillCamera.horizontallyMirrorFrontFacingCamera = NO;
-     }
-     */
-    
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
     
@@ -681,6 +678,14 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                                  [self.delegate cameraController:self didFinishCapturingImage:capturedImage];
                              });
                          }
+                         
+                         NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
+
+                         if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
+                            dispatch_async(dispatch_get_main_queue(), ^{
+                                 [self.delegate cameraController:self didFinishCapturingImageData:imageData];
+                            });
+                        }
                      }];
         
         void (^scaleCallback)(FastttCapturedImage *capturedImage) = ^(FastttCapturedImage *capturedImage) {
@@ -731,7 +736,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 
 - (void)_processCameraVideo {
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        
         // output file
         NSString* docFolder = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) lastObject];
         NSString* outputPath = [docFolder stringByAppendingPathComponent:@"Output.mov"];
@@ -801,14 +805,11 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         
         [exporter exportAsynchronouslyWithCompletionHandler:^(void){
             NSLog(@"Exporting done!");
-            /*
-             if (_cameraDevice == FastttCameraDeviceFront) {
-             [self _teardownCaptureSession];
-             [self _setupCaptureSession];
-             }
-             */
+
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
+                if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
+                    [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
+                }
             });
         }];
     });
@@ -1067,9 +1068,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     }
     
     self.isTakingPhotoSilent = NO;
-    
-    sleep(1);
-    
+        
     BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
 #if TARGET_IPHONE_SIMULATOR
     UIImage *fakeImage = [UIImage fastttFakeTestImage];
@@ -1079,16 +1078,57 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
     
+    if (!sampleBuffer) {
+        return;
+    }
+    
+    NSMutableDictionary *metadata = [NSMutableDictionary dictionary];
+    CMAttachmentMode attachmentMode;
+    
+    // Exif
+    CFDictionaryRef exifAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyExifDictionary, &attachmentMode);
+    if(exifAttachments){
+        [metadata setObject:(__bridge id _Nonnull)(exifAttachments) forKey:(NSString *)kCGImagePropertyExifDictionary];
+    }
+    // TIFF
+    CFDictionaryRef tiffAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyTIFFDictionary, &attachmentMode);
+    if(tiffAttachments){
+        [metadata setObject:(__bridge id _Nonnull)(tiffAttachments) forKey:(NSString *)kCGImagePropertyTIFFDictionary];
+    }
+    // GPS
+    CFDictionaryRef gpsAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyGPSDictionary, &attachmentMode);
+    if(gpsAttachments){
+        [metadata setObject:(__bridge id _Nonnull)(gpsAttachments) forKey:(NSString *)kCGImagePropertyGPSDictionary];
+    }
+    
+    self.currentMetadata = metadata;
+    NSLog(@"%@", metadata);
+    
     [self.fastFilter.filter useNextFrameForImageCapture];
-    
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
-    
     UIImage *currentFilteredImage = [self.fastFilter.filter imageFromCurrentFramebuffer];
     
-    [self _processCameraPhoto:currentFilteredImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
-    
-    
+    if (self.isCapturingImage) {
+        [self _processCameraPhoto:currentFilteredImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+    }
 #endif
+    sleep(1);
+}
+
+- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSDictionary *)metadata
+{
+    // メタデータ付きの静止画データの格納先を用意する
+    NSMutableData *imageData = [NSMutableData new];
+    // imageDataにjpegで１枚画像を書き込む設定のCGImageDestinationRefを作成する
+    CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)imageData, kUTTypeJPEG, 1, NULL);
+    // 作成したCGImageDestinationRefに静止画データとメタデータを追加する
+    CGImageDestinationAddImage(dest, image.CGImage, (__bridge CFDictionaryRef)metadata);
+    // メタデータ付きの静止画データの作成を実行する
+    CGImageDestinationFinalize(dest);
+    // CGImageDestinationRefを解放する
+    CFRelease(dest);
+ 
+    return imageData;
 }
 
 @end
