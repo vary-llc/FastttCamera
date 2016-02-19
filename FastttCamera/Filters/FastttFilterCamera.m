@@ -680,8 +680,15 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                              });
                          }
                          
-                         [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation]
-                                                  forKey:(NSString *)kCGImagePropertyOrientation];
+                         NSDateFormatter *outputFormatter = [[NSDateFormatter alloc] init];
+                         [outputFormatter setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
+                         NSString *date = [outputFormatter stringFromDate:[NSDate date]];
+                         [self.currentMetadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeOriginal];
+                         [self.currentMetadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeDigitized];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
+                         
                          NSLog(@"%@", self.currentMetadata);
                          
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
