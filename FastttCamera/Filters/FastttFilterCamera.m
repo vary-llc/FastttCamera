@@ -34,7 +34,7 @@
 @property (nonatomic, assign) BOOL isTakingPhotoSilent;
 @property (nonatomic, strong) NSURL *movieURL;
 @property (nonatomic, assign) CGFloat currentZoomScale;
-@property (nonatomic, strong) NSDictionary *currentMetadata;
+@property (nonatomic, strong) NSMutableDictionary *currentMetadata;
 
 @end
 
@@ -554,6 +554,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
     
     [_stillCamera capturePhotoAsImageProcessedUpToFilter:self.fastFilter.filter withOrientation:UIImageOrientationUp withCompletionHandler:^(UIImage *processedImage, NSError *error){
+        self.currentMetadata = _stillCamera.currentCaptureMetadata.mutableCopy;
         
         if (self.isCapturingImage) {
             [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
@@ -679,13 +680,17 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                              });
                          }
                          
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation]
+                                                  forKey:(NSString *)kCGImagePropertyOrientation];
+                         NSLog(@"%@", self.currentMetadata);
+                         
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
-
+                         
                          if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
-                            dispatch_async(dispatch_get_main_queue(), ^{
+                             dispatch_async(dispatch_get_main_queue(), ^{
                                  [self.delegate cameraController:self didFinishCapturingImageData:imageData];
-                            });
-                        }
+                             });
+                         }
                      }];
         
         void (^scaleCallback)(FastttCapturedImage *capturedImage) = ^(FastttCapturedImage *capturedImage) {
@@ -805,7 +810,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         
         [exporter exportAsynchronouslyWithCompletionHandler:^(void){
             NSLog(@"Exporting done!");
-
+            
             dispatch_async(dispatch_get_main_queue(), ^{
                 if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
                     [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
@@ -1068,7 +1073,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     }
     
     self.isTakingPhotoSilent = NO;
-        
+    
     BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
 #if TARGET_IPHONE_SIMULATOR
     UIImage *fakeImage = [UIImage fastttFakeTestImage];
@@ -1095,14 +1100,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     if(tiffAttachments){
         [metadata setObject:(__bridge id _Nonnull)(tiffAttachments) forKey:(NSString *)kCGImagePropertyTIFFDictionary];
     }
-    // GPS
-    CFDictionaryRef gpsAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyGPSDictionary, &attachmentMode);
-    if(gpsAttachments){
-        [metadata setObject:(__bridge id _Nonnull)(gpsAttachments) forKey:(NSString *)kCGImagePropertyGPSDictionary];
-    }
     
     self.currentMetadata = metadata;
-    NSLog(@"%@", metadata);
     
     [self.fastFilter.filter useNextFrameForImageCapture];
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
@@ -1127,7 +1126,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     CGImageDestinationFinalize(dest);
     // CGImageDestinationRefを解放する
     CFRelease(dest);
- 
+    
     return imageData;
 }
 
