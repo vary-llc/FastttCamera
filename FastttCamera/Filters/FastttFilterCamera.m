@@ -689,8 +689,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
                          
-                         NSLog(@"%@", self.currentMetadata);
-                         
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
                          
                          if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
@@ -1094,21 +1092,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         return;
     }
     
-    NSMutableDictionary *metadata = [NSMutableDictionary dictionary];
-    CMAttachmentMode attachmentMode;
-    
-    // Exif
-    CFDictionaryRef exifAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyExifDictionary, &attachmentMode);
-    if(exifAttachments){
-        [metadata setObject:(__bridge id _Nonnull)(exifAttachments) forKey:(NSString *)kCGImagePropertyExifDictionary];
-    }
-    // TIFF
-    CFDictionaryRef tiffAttachments = CMGetAttachment(sampleBuffer, kCGImagePropertyTIFFDictionary, &attachmentMode);
-    if(tiffAttachments){
-        [metadata setObject:(__bridge id _Nonnull)(tiffAttachments) forKey:(NSString *)kCGImagePropertyTIFFDictionary];
-    }
-    
-    self.currentMetadata = metadata;
+    CFDictionaryRef metadata = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
+    self.currentMetadata = ((__bridge_transfer NSDictionary *)metadata).mutableCopy;
     
     [self.fastFilter.filter useNextFrameForImageCapture];
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
