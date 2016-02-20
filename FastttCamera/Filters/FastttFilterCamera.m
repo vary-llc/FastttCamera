@@ -28,7 +28,6 @@
 @property (nonatomic, strong) GPUImageMovieWriter *movieWriter;
 @property (nonatomic, strong) FastttFilter *fastFilter;
 @property (nonatomic, strong) GPUImageView *previewView;
-@property (nonatomic, strong) GPUImageCropFilter *cropFilter;
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
 @property (nonatomic, assign) BOOL isTakingPhotoSilent;
