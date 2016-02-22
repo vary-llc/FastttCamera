@@ -481,7 +481,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                 
                 _stillCamera = [[GPUImageStillCamera alloc] initWithSessionPreset:AVCaptureSessionPresetPhoto cameraPosition:position];
                 _stillCamera.outputImageOrientation = UIInterfaceOrientationPortrait;
-                //_stillCamera.horizontallyMirrorFrontFacingCamera = YES;
                 _stillCamera.delegate = self;
                 
                 switch (position) {
@@ -580,23 +579,60 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
     }
     
-    /*
-     if ([videoConnection isVideoMirroringSupported]) {
-     [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
-     }
-     */
-    
     NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
     _movieURL = [NSURL fileURLWithPath:pathToMovie];
     
+    /*
     CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
     
     if (ratio >= 1.5) {
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
-        [self zoomToScale:_currentZoomScale];
+    }else{
+        _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
+        
+        // カメラのフォーマット一覧を取得
+        NSArray *formats = _stillCamera.inputCamera.formats;
+        
+        // カメラのフォーマット一覧から、最高fpsかつ最大サイズのフォーマットを検索
+        // （420f,420vにはこだわらない）
+        Float64 maxFrameRate = .0f;
+        int32_t maxWidth = 0;
+        AVCaptureDeviceFormat *targetFormat = nil;
+        for (AVCaptureDeviceFormat *format in formats) {
+            NSLog(@"%@", format);
+            // フォーマットのFPSを取得
+            AVFrameRateRange *frameRateRange = format.videoSupportedFrameRateRanges[0];
+            Float64 frameRate = frameRateRange.maxFrameRate; // フレームレート
+            
+            // フォーマットのフレームサイズ（幅）を取得
+            CMFormatDescriptionRef desc = format.formatDescription;
+            CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
+            int32_t width = dimensions.width;                // フレームサイズ（幅）
+            
+            // フレームレートとサイズの両方が大きい場合はフォーマットを保持
+            if (frameRate >= maxFrameRate && width >= maxWidth) {
+                targetFormat = format;
+                
+                // 条件の更新
+                maxFrameRate = frameRate;
+                maxWidth = width;
+            }
+        }
+        
+        // 検索したフォーマットをデバイスに設定し、fpsを上限値で指定
+        if ([_stillCamera.inputCamera lockForConfiguration:nil]) {
+            _stillCamera.inputCamera.activeFormat = targetFormat;
+            _stillCamera.inputCamera.activeVideoMaxFrameDuration = CMTimeMake(1, maxFrameRate);
+            _stillCamera.inputCamera.activeVideoMinFrameDuration = CMTimeMake(1, maxFrameRate);
+            [_stillCamera.inputCamera unlockForConfiguration];
+        }
     }
+    */
     
+    _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+    [self zoomToScale:_currentZoomScale];
+
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
     
@@ -609,29 +645,58 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         height = buf;
     }
     
+    // crop clip to screen ratio
+    CGFloat complimentSize = [self getComplimentSize:width];
+    CGFloat tx = (height-complimentSize)/2;
+    GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
+    [transformFilter setAffineTransform:CGAffineTransformTranslate(transformFilter.affineTransform, 0, tx)];
+    
     _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, height)];
     _movieWriter.encodingLiveVideo = YES;
-    
+    _movieWriter.shouldPassthroughAudio =YES;
     [self.fastFilter.filter addTarget: _movieWriter];
+    //[transformFilter addTarget:_movieWriter];
+    
     _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecording];
     
+    double delayToStartRecording = 0.5;
+    dispatch_time_t startTime = dispatch_time(DISPATCH_TIME_NOW, delayToStartRecording * NSEC_PER_SEC);
+    dispatch_after(startTime, dispatch_get_main_queue(), ^(void){
+        _stillCamera.audioEncodingTarget = _movieWriter;
+        [_movieWriter startRecording];
+
+//        NSError *error = nil;
+//        if (![_stillCamera.inputCamera lockForConfiguration:&error])
+//        {
+//            NSLog(@"Error locking for configuration: %@", error);
+//        }
+//        [_stillCamera.inputCamera setTorchMode:AVCaptureTorchModeOn];
+//        [_stillCamera.inputCamera unlockForConfiguration];
+    });
 }
 
 - (void)stopRecordingVideo {
+
     [_movieWriter finishRecordingWithCompletionHandler:^{
         [self.fastFilter.filter removeTarget:_movieWriter];
         _stillCamera.audioEncodingTarget = nil;
-        _movieWriter = nil;
+        //UISaveVideoAtPathToSavedPhotosAlbum(_movieURL.path, nil, nil, nil);
+        //[self.delegate cameraController:self didFinishRecordingVideo:_movieURL];
         [self _processCameraVideo];
         
+        /*
         CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
         
         if (ratio >= 1.5) {
             _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-            [self zoomToScale:_currentZoomScale];
         }
+         */
+        _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+
+        [self zoomToScale:_currentZoomScale];
     }];
+    _movieWriter = nil;
 }
 
 #pragma mark - Processing a Photo
@@ -687,6 +752,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                          [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
+                         NSLog(@"%@", self.currentMetadata);
                          
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
                          
@@ -801,6 +867,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
          CGAffineTransform t3 = CGAffineTransformScale(t2, isPortrait?1:-1, isPortrait?-1:1);
          t = t3;
          }*/
+        GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
+        [transformFilter setAffineTransform:t];
         
         [transformer setTransform:t atTime:kCMTimeZero];
         instruction.layerInstructions = [NSArray arrayWithObject: transformer];
