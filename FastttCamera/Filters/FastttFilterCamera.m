@@ -32,8 +32,10 @@
 @property (nonatomic, assign) BOOL isCapturingImage;
 @property (nonatomic, assign) BOOL isTakingPhotoSilent;
 @property (nonatomic, strong) NSURL *movieURL;
+@property (nonatomic, strong) NSURL *audioURL;
 @property (nonatomic, assign) CGFloat currentZoomScale;
 @property (nonatomic, strong) NSMutableDictionary *currentMetadata;
+@property (nonatomic, strong) AVAudioRecorder *audioRecorder;
 
 @end
 
@@ -570,7 +572,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     self.isTakingPhotoSilent = YES;
 }
 
-#pragma mark - Capturing Video
+#pragma mark - Recording Video
 
 - (void)startRecordingVideo {
     AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection;
@@ -584,55 +586,60 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     _movieURL = [NSURL fileURLWithPath:pathToMovie];
     
     /*
-    CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+     CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+     
+     if (ratio >= 1.5) {
+     _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+     }else{
+     _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
+     
+     // カメラのフォーマット一覧を取得
+     NSArray *formats = _stillCamera.inputCamera.formats;
+     
+     // カメラのフォーマット一覧から、最高fpsかつ最大サイズのフォーマットを検索
+     // （420f,420vにはこだわらない）
+     Float64 maxFrameRate = .0f;
+     int32_t maxWidth = 0;
+     AVCaptureDeviceFormat *targetFormat = nil;
+     for (AVCaptureDeviceFormat *format in formats) {
+     NSLog(@"%@", format);
+     // フォーマットのFPSを取得
+     AVFrameRateRange *frameRateRange = format.videoSupportedFrameRateRanges[0];
+     Float64 frameRate = frameRateRange.maxFrameRate; // フレームレート
+     
+     // フォーマットのフレームサイズ（幅）を取得
+     CMFormatDescriptionRef desc = format.formatDescription;
+     CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
+     int32_t width = dimensions.width;                // フレームサイズ（幅）
+     
+     // フレームレートとサイズの両方が大きい場合はフォーマットを保持
+     if (frameRate >= maxFrameRate && width >= maxWidth) {
+     targetFormat = format;
+     
+     // 条件の更新
+     maxFrameRate = frameRate;
+     maxWidth = width;
+     }
+     }
+     
+     // 検索したフォーマットをデバイスに設定し、fpsを上限値で指定
+     if ([_stillCamera.inputCamera lockForConfiguration:nil]) {
+     _stillCamera.inputCamera.activeFormat = targetFormat;
+     _stillCamera.inputCamera.activeVideoMaxFrameDuration = CMTimeMake(1, maxFrameRate);
+     _stillCamera.inputCamera.activeVideoMinFrameDuration = CMTimeMake(1, maxFrameRate);
+     [_stillCamera.inputCamera unlockForConfiguration];
+     }
+     }
+     */
     
-    if (ratio >= 1.5) {
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
-    }else{
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
-        
-        // カメラのフォーマット一覧を取得
-        NSArray *formats = _stillCamera.inputCamera.formats;
-        
-        // カメラのフォーマット一覧から、最高fpsかつ最大サイズのフォーマットを検索
-        // （420f,420vにはこだわらない）
-        Float64 maxFrameRate = .0f;
-        int32_t maxWidth = 0;
-        AVCaptureDeviceFormat *targetFormat = nil;
-        for (AVCaptureDeviceFormat *format in formats) {
-            NSLog(@"%@", format);
-            // フォーマットのFPSを取得
-            AVFrameRateRange *frameRateRange = format.videoSupportedFrameRateRanges[0];
-            Float64 frameRate = frameRateRange.maxFrameRate; // フレームレート
-            
-            // フォーマットのフレームサイズ（幅）を取得
-            CMFormatDescriptionRef desc = format.formatDescription;
-            CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
-            int32_t width = dimensions.width;                // フレームサイズ（幅）
-            
-            // フレームレートとサイズの両方が大きい場合はフォーマットを保持
-            if (frameRate >= maxFrameRate && width >= maxWidth) {
-                targetFormat = format;
-                
-                // 条件の更新
-                maxFrameRate = frameRate;
-                maxWidth = width;
-            }
-        }
-        
-        // 検索したフォーマットをデバイスに設定し、fpsを上限値で指定
-        if ([_stillCamera.inputCamera lockForConfiguration:nil]) {
-            _stillCamera.inputCamera.activeFormat = targetFormat;
-            _stillCamera.inputCamera.activeVideoMaxFrameDuration = CMTimeMake(1, maxFrameRate);
-            _stillCamera.inputCamera.activeVideoMinFrameDuration = CMTimeMake(1, maxFrameRate);
-            [_stillCamera.inputCamera unlockForConfiguration];
-        }
-    }
-    */
-    
+    //CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+    //if (ratio >= 1.5) {
     _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
     [self zoomToScale:_currentZoomScale];
-
+    //}else{
+    //    [self startRecordAudio];
+    //}
+    
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
     
@@ -653,50 +660,102 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, height)];
     _movieWriter.encodingLiveVideo = YES;
-    _movieWriter.shouldPassthroughAudio =YES;
+    _movieWriter.shouldPassthroughAudio = YES;
     [self.fastFilter.filter addTarget: _movieWriter];
     //[transformFilter addTarget:_movieWriter];
     
     _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecording];
     
-    double delayToStartRecording = 0.5;
-    dispatch_time_t startTime = dispatch_time(DISPATCH_TIME_NOW, delayToStartRecording * NSEC_PER_SEC);
-    dispatch_after(startTime, dispatch_get_main_queue(), ^(void){
-        _stillCamera.audioEncodingTarget = _movieWriter;
-        [_movieWriter startRecording];
-
-//        NSError *error = nil;
-//        if (![_stillCamera.inputCamera lockForConfiguration:&error])
-//        {
-//            NSLog(@"Error locking for configuration: %@", error);
-//        }
-//        [_stillCamera.inputCamera setTorchMode:AVCaptureTorchModeOn];
-//        [_stillCamera.inputCamera unlockForConfiguration];
-    });
+    [_stillCamera.inputCamera lockForConfiguration:nil];
+    [self setCameraTorchMode:_cameraTorchMode];
+    [_stillCamera.inputCamera unlockForConfiguration];
 }
 
 - (void)stopRecordingVideo {
-
+    CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+    if (ratio < 1.5) {
+        [self stopRecordAudio];
+    }
     [_movieWriter finishRecordingWithCompletionHandler:^{
         [self.fastFilter.filter removeTarget:_movieWriter];
         _stillCamera.audioEncodingTarget = nil;
-        //UISaveVideoAtPathToSavedPhotosAlbum(_movieURL.path, nil, nil, nil);
-        //[self.delegate cameraController:self didFinishRecordingVideo:_movieURL];
         [self _processCameraVideo];
+        //[self.delegate cameraController:self didFinishRecordingVideo:_movieURL];
         
-        /*
-        CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
-        
-        if (ratio >= 1.5) {
-            _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-        }
-         */
+        //if (ratio >= 1.5) {
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-
         [self zoomToScale:_currentZoomScale];
+        //}
+        
+        [_stillCamera.inputCamera lockForConfiguration:nil];
+        [self setCameraTorchMode:_cameraTorchMode];
+        [_stillCamera.inputCamera unlockForConfiguration];
     }];
+    
     _movieWriter = nil;
+}
+
+#pragma mark - Recording Audio
+
+-(NSMutableDictionary *)setAudioRecorder
+{
+    NSMutableDictionary *settings = [[NSMutableDictionary alloc] init];
+    [settings setValue:[NSNumber numberWithInt:kAudioFormatLinearPCM] forKey:AVFormatIDKey];
+    [settings setValue:[NSNumber numberWithFloat:44100.0] forKey:AVSampleRateKey];
+    [settings setValue:[NSNumber numberWithInt:2] forKey:AVNumberOfChannelsKey];
+    [settings setValue:[NSNumber numberWithInt:16] forKey:AVLinearPCMBitDepthKey];
+    [settings setValue:[NSNumber numberWithBool:NO] forKey:AVLinearPCMIsBigEndianKey];
+    [settings setValue:[NSNumber numberWithBool:NO] forKey:AVLinearPCMIsFloatKey];
+    
+    return settings;
+}
+
+-(void)startRecordAudio
+{
+    // Prepare recording(Audio session)
+    NSError *error = nil;
+    
+    if ( [AVAudioSession sharedInstance].inputAvailable )   // for iOS6 [session inputIsAvailable]  iOS5
+    {
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryRecord error:&error];
+    }
+    
+    if ( error != nil )
+    {
+        NSLog(@"Error when preparing audio session :%@", [error localizedDescription]);
+        return;
+    }
+    [[AVAudioSession sharedInstance] setActive:YES error:&error];
+    if ( error != nil )
+    {
+        NSLog(@"Error when enabling audio session :%@", [error localizedDescription]);
+        return;
+    }
+    
+    // File Path
+    NSString *dir = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents"];
+    NSString *filePath = [dir stringByAppendingPathComponent:@"Audio.caf"];
+    _audioURL = [NSURL fileURLWithPath:filePath];
+    
+    _audioRecorder = [[AVAudioRecorder alloc] initWithURL:_audioURL settings:[self setAudioRecorder] error:&error];
+    [_audioRecorder prepareToRecord];
+    _audioRecorder.meteringEnabled = YES;
+    if ( error != nil )
+    {
+        NSLog(@"Error when preparing audio recorder :%@", [error localizedDescription]);
+        return;
+    }
+    [_audioRecorder record];
+}
+
+-(void)stopRecordAudio
+{
+    if ( _audioRecorder != nil && _audioRecorder.isRecording )
+    {
+        [_audioRecorder stop];
+        _audioRecorder = nil;
+    }
 }
 
 #pragma mark - Processing a Photo
@@ -818,17 +877,18 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
             [[NSFileManager defaultManager] removeItemAtPath:outputPath error:nil];
         NSURL *outputURL = [NSURL fileURLWithPath:outputPath];
         
-        // input file
-        AVAsset* asset = [AVAsset assetWithURL:_movieURL];
-        
         AVMutableComposition *composition = [AVMutableComposition composition];
-        [composition  addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
         
-        // input clip
-        AVAssetTrack *videoTrack = [[asset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+        AVAsset* videoAsset = [AVAsset assetWithURL:_movieURL];
+        AVAssetTrack *videoTrack = [[videoAsset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+        AVMutableCompositionTrack *compositionVideoTrack = [composition  addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
+        [compositionVideoTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, videoTrack.timeRange.duration)
+                                       ofTrack:videoTrack
+                                        atTime:kCMTimeZero
+                                         error:nil];
         
         // crop clip to screen ratio
-        UIInterfaceOrientation orientation = [self orientationForTrack:asset];
+        UIInterfaceOrientation orientation = [self orientationForTrack:videoAsset];
         BOOL isPortrait = (orientation == UIInterfaceOrientationPortrait || orientation == UIInterfaceOrientationPortraitUpsideDown) ? YES: NO;
         CGFloat complimentSize = [self getComplimentSize:videoTrack.naturalSize.width];
         CGSize videoSize;
@@ -844,7 +904,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         videoComposition.frameDuration = CMTimeMake(1, 30);
         
         AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-        instruction.timeRange = CMTimeRangeMake(kCMTimeZero, asset.duration);
+        instruction.timeRange = CMTimeRangeMake(kCMTimeZero, videoTrack.timeRange.duration);
         
         // rotate and position video
         AVMutableVideoCompositionLayerInstruction* transformer = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
@@ -856,17 +916,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
             tx *= -1;
         }
         
-        CGAffineTransform t;
-        
-        // t1: rotate and position video since it may have been cropped to screen ratio
-        CGAffineTransform t1 = CGAffineTransformTranslate(videoTrack.preferredTransform, 0, tx);
-        t = t1;
-        // t2/t3: mirror video horizontally
-        /*    if (_cameraDevice == FastttCameraDeviceFront) {
-         CGAffineTransform t2 = CGAffineTransformTranslate(t1, isPortrait?0:videoTrack.naturalSize.width, isPortrait?videoTrack.naturalSize.height:0);
-         CGAffineTransform t3 = CGAffineTransformScale(t2, isPortrait?1:-1, isPortrait?-1:1);
-         t = t3;
-         }*/
+        // t: rotate and position video since it may have been cropped to screen ratio
+        CGAffineTransform t = CGAffineTransformTranslate(videoTrack.preferredTransform, 0, tx);
         GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
         [transformFilter setAffineTransform:t];
         
@@ -874,15 +925,45 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         instruction.layerInstructions = [NSArray arrayWithObject: transformer];
         videoComposition.instructions = [NSArray arrayWithObject: instruction];
         
+        
+        // Audio
+        AVAssetTrack *audioTrack;
+        NSArray *tracks = [videoAsset tracksWithMediaType:AVMediaTypeAudio];
+        if (tracks.count == 0) {
+            AVAsset* audioAsset = [AVAsset assetWithURL: _audioURL];
+            audioTrack = [[audioAsset tracksWithMediaType:AVMediaTypeAudio] objectAtIndex:0];
+        }else{
+            audioTrack = [[videoAsset tracksWithMediaType:AVMediaTypeAudio] objectAtIndex:0];
+        }
+        
+        AVMutableCompositionTrack *compositionAudioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
+        [compositionAudioTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, audioTrack.timeRange.duration)
+                                       ofTrack:audioTrack
+                                        atTime:kCMTimeZero
+                                         error:nil];
+        
+        // Audioの合成パラメータオブジェクトを生成
+        AVMutableAudioMixInputParameters *audioMixInputParameters;
+        audioMixInputParameters = [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:audioTrack];
+        [audioMixInputParameters setVolumeRampFromStartVolume:1.0
+                                                  toEndVolume:1.0
+                                                    timeRange:CMTimeRangeMake(kCMTimeZero, composition.duration)];
+        
+        // AVMutableAudioMixを生成
+        AVMutableAudioMix *audioMix = [AVMutableAudioMix audioMix];
+        audioMix.inputParameters = @[audioMixInputParameters];
+        
+        
         // export
-        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:asset presetName:AVAssetExportPresetHighestQuality] ;
+        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPreset640x480] ;
         exporter.videoComposition = videoComposition;
+        //exporter.audioMix = audioMix;
         exporter.outputURL = outputURL;
         exporter.outputFileType = AVFileTypeQuickTimeMovie;
         
         [exporter exportAsynchronouslyWithCompletionHandler:^(void){
             NSLog(@"Exporting done!");
-            
+            _audioURL = nil;
             dispatch_async(dispatch_get_main_queue(), ^{
                 if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
                     [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
