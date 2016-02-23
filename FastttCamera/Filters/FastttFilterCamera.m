@@ -25,6 +25,7 @@
 @property (nonatomic, strong) FastttFocus *fastFocus;
 @property (nonatomic, strong) FastttZoom *fastZoom;
 @property (nonatomic, strong) GPUImageStillCamera *stillCamera;
+@property (nonatomic, strong) GPUImageVideoCamera *videoCamera;
 @property (nonatomic, strong) GPUImageMovieWriter *movieWriter;
 @property (nonatomic, strong) FastttFilter *fastFilter;
 @property (nonatomic, strong) GPUImageView *previewView;
@@ -402,9 +403,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 {
     [_stillCamera stopCameraCapture];
     
-    if (_movieWriter) {
-        [self stopRecordingVideo];
-    }
+    [self stopRecordingVideo];
 }
 
 - (void)_insertPreviewLayer
@@ -480,7 +479,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                 }
                 
                 AVCaptureDevicePosition position = [device position];
-                
+                _videoCamera = [[GPUImageVideoCamera alloc] initWithSessionPreset:AVCaptureSessionPresetLow cameraPosition:position];
                 _stillCamera = [[GPUImageStillCamera alloc] initWithSessionPreset:AVCaptureSessionPresetPhoto cameraPosition:position];
                 _stillCamera.outputImageOrientation = UIInterfaceOrientationPortrait;
                 _stillCamera.delegate = self;
@@ -575,11 +574,32 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 #pragma mark - Recording Video
 
 - (void)startRecordingVideo {
+    CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
+    if (ratio >= 1.5) {
+        _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+        [self zoomToScale:_currentZoomScale];
+    }
+    else{
+        [self startRecordAudio];
+    }
+    
     AVCaptureConnection *videoConnection = _stillCamera.videoCaptureConnection;
     
     if ([videoConnection isVideoOrientationSupported]) {
         [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
     }
+    /*
+    AVCaptureSession *captureSession = _stillCamera.captureSession;
+    AVCaptureDevice *audioCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    NSError *error = nil;
+    AVCaptureDeviceInput *audioInput = [AVCaptureDeviceInput deviceInputWithDevice:audioCaptureDevice error:&error];
+    if (audioInput) {
+        [captureSession addInput:audioInput];
+    }
+    else {
+        // Handle the failure.
+    }
+    */
     
     NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
     unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
@@ -631,15 +651,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
      }
      }
      */
-    
-    //CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
-    //if (ratio >= 1.5) {
-    _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
-    [self zoomToScale:_currentZoomScale];
-    //}else{
-    //    [self startRecordAudio];
-    //}
-    
+
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     NSDictionary* outputSettings = [output videoSettings];
     
@@ -653,44 +665,50 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     }
     
     // crop clip to screen ratio
-    CGFloat complimentSize = [self getComplimentSize:width];
-    CGFloat tx = (height-complimentSize)/2;
-    GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
-    [transformFilter setAffineTransform:CGAffineTransformTranslate(transformFilter.affineTransform, 0, tx)];
+    CGFloat complimentHeight = [self getComplimentSize:width];
+    CGFloat ty = (height-complimentHeight)/2;
+    CGAffineTransform transform = CGAffineTransformIdentity;
+    transform = CGAffineTransformTranslate(transform, 0, -ty);
     
-    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, height)];
+    _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, complimentHeight)];
     _movieWriter.encodingLiveVideo = YES;
-    _movieWriter.shouldPassthroughAudio = YES;
+    //_movieWriter.shouldPassthroughAudio = YES;
+    _movieWriter.transform = transform;
+
+    //GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
+    //[transformFilter setAffineTransform:transform];
+    
     [self.fastFilter.filter addTarget: _movieWriter];
     //[transformFilter addTarget:_movieWriter];
     
     _stillCamera.audioEncodingTarget = _movieWriter;
     [_movieWriter startRecording];
     
-    [_stillCamera.inputCamera lockForConfiguration:nil];
     [self setCameraTorchMode:_cameraTorchMode];
-    [_stillCamera.inputCamera unlockForConfiguration];
 }
 
 - (void)stopRecordingVideo {
+    if (!_movieWriter) {
+        return;
+    }
+    
     CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
     if (ratio < 1.5) {
         [self stopRecordAudio];
     }
+    
     [_movieWriter finishRecordingWithCompletionHandler:^{
         [self.fastFilter.filter removeTarget:_movieWriter];
         _stillCamera.audioEncodingTarget = nil;
-        [self _processCameraVideo];
-        //[self.delegate cameraController:self didFinishRecordingVideo:_movieURL];
+        //[self _processCameraVideo];
+        [self.delegate cameraController:self didFinishRecordingVideo: _movieURL];
         
-        //if (ratio >= 1.5) {
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-        [self zoomToScale:_currentZoomScale];
-        //}
+        if (ratio >= 1.5) {
+            _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+            [self zoomToScale:_currentZoomScale];
+        }
         
-        [_stillCamera.inputCamera lockForConfiguration:nil];
         [self setCameraTorchMode:_cameraTorchMode];
-        [_stillCamera.inputCamera unlockForConfiguration];
     }];
     
     _movieWriter = nil;
@@ -811,7 +829,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                          [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
                          [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
-                         NSLog(@"%@", self.currentMetadata);
                          
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
                          
@@ -879,10 +896,12 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         
         AVMutableComposition *composition = [AVMutableComposition composition];
         
-        AVAsset* videoAsset = [AVAsset assetWithURL:_movieURL];
+        AVURLAsset* videoAsset = [AVURLAsset URLAssetWithURL:_movieURL options:nil];
         AVAssetTrack *videoTrack = [[videoAsset tracksWithMediaType:AVMediaTypeVideo] objectAtIndex:0];
+        CMTimeRange timeRange = CMTimeRangeMake(videoTrack.timeRange.start, videoTrack.timeRange.duration);
+
         AVMutableCompositionTrack *compositionVideoTrack = [composition  addMutableTrackWithMediaType:AVMediaTypeVideo preferredTrackID:kCMPersistentTrackID_Invalid];
-        [compositionVideoTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, videoTrack.timeRange.duration)
+        [compositionVideoTrack insertTimeRange:timeRange
                                        ofTrack:videoTrack
                                         atTime:kCMTimeZero
                                          error:nil];
@@ -904,8 +923,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         videoComposition.frameDuration = CMTimeMake(1, 30);
         
         AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
-        instruction.timeRange = CMTimeRangeMake(kCMTimeZero, videoTrack.timeRange.duration);
-        
+        instruction.timeRange = timeRange;
+
         // rotate and position video
         AVMutableVideoCompositionLayerInstruction* transformer = [AVMutableVideoCompositionLayerInstruction videoCompositionLayerInstructionWithAssetTrack:videoTrack];
         
@@ -918,9 +937,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         
         // t: rotate and position video since it may have been cropped to screen ratio
         CGAffineTransform t = CGAffineTransformTranslate(videoTrack.preferredTransform, 0, tx);
-        GPUImageTransformFilter *transformFilter = [[GPUImageTransformFilter alloc]init];
-        [transformFilter setAffineTransform:t];
-        
         [transformer setTransform:t atTime:kCMTimeZero];
         instruction.layerInstructions = [NSArray arrayWithObject: transformer];
         videoComposition.instructions = [NSArray arrayWithObject: instruction];
@@ -930,18 +946,18 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         AVAssetTrack *audioTrack;
         NSArray *tracks = [videoAsset tracksWithMediaType:AVMediaTypeAudio];
         if (tracks.count == 0) {
-            AVAsset* audioAsset = [AVAsset assetWithURL: _audioURL];
+            AVURLAsset *audioAsset = [AVURLAsset URLAssetWithURL:_audioURL options:nil];
             audioTrack = [[audioAsset tracksWithMediaType:AVMediaTypeAudio] objectAtIndex:0];
         }else{
             audioTrack = [[videoAsset tracksWithMediaType:AVMediaTypeAudio] objectAtIndex:0];
         }
         
         AVMutableCompositionTrack *compositionAudioTrack = [composition addMutableTrackWithMediaType:AVMediaTypeAudio preferredTrackID:kCMPersistentTrackID_Invalid];
-        [compositionAudioTrack insertTimeRange:CMTimeRangeMake(kCMTimeZero, audioTrack.timeRange.duration)
+        [compositionAudioTrack insertTimeRange:timeRange
                                        ofTrack:audioTrack
                                         atTime:kCMTimeZero
                                          error:nil];
-        
+        /*
         // Audioの合成パラメータオブジェクトを生成
         AVMutableAudioMixInputParameters *audioMixInputParameters;
         audioMixInputParameters = [AVMutableAudioMixInputParameters audioMixInputParametersWithTrack:audioTrack];
@@ -952,23 +968,35 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         // AVMutableAudioMixを生成
         AVMutableAudioMix *audioMix = [AVMutableAudioMix audioMix];
         audioMix.inputParameters = @[audioMixInputParameters];
-        
+        */
         
         // export
-        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPreset640x480] ;
+        AVAssetExportSession *exporter = [[AVAssetExportSession alloc] initWithAsset:composition presetName:AVAssetExportPresetHighestQuality] ;
         exporter.videoComposition = videoComposition;
         //exporter.audioMix = audioMix;
         exporter.outputURL = outputURL;
         exporter.outputFileType = AVFileTypeQuickTimeMovie;
         
         [exporter exportAsynchronouslyWithCompletionHandler:^(void){
-            NSLog(@"Exporting done!");
+            switch ([exportSession status]) {
+                case AVAssetExportSessionStatusCompleted:
+                    NSLog(@"Exporte completed!");
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
+                            [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
+                        }
+                    });
+                case AVAssetExportSessionStatusFailed:
+                    NSLog(@"Export failed: %@", [[exportSession error] localizedDescription]);
+                    break;
+                case AVAssetExportSessionStatusCancelled:
+                    NSLog(@"Export canceled");
+                    break;
+                default:
+                    break;
+            }
+
             _audioURL = nil;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
-                    [self.delegate cameraController:self didFinishRecordingVideo:outputURL];
-                }
-            });
         }];
     });
 }
