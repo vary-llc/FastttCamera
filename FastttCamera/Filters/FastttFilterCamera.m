@@ -808,6 +808,21 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                              });
                          }
                          
+                         NSDateFormatter *outputFormatter = [[NSDateFormatter alloc] init];
+                         [outputFormatter setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
+                         NSString *date = [outputFormatter stringFromDate:[NSDate date]];
+                         NSMutableDictionary *exif = [self.currentMetadata objectForKey:(NSString *)kCGImagePropertyExifDictionary];
+                         [exif setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeOriginal];
+                         [exif setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeDigitized];
+                         NSMutableDictionary *tiff = [self.currentMetadata objectForKey:(NSString *)kCGImagePropertyTIFFDictionary];
+                         [tiff setObject:date forKey:(NSString*)kCGImagePropertyTIFFDateTime];
+                         [tiff setObject:@"Apple" forKey:(NSString*)kCGImagePropertyTIFFMake];
+                         [self.currentMetadata setObject:exif forKey:(NSString *)kCGImagePropertyExifDictionary];
+                         [self.currentMetadata setObject:tiff forKey:(NSString *)kCGImagePropertyTIFFDictionary];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
+                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
+                         
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
                          
                          if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
@@ -879,11 +894,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     CMTimeRange range = CMTimeRangeMake(kCMTimeZero, asset.duration);
     
     AVAssetTrack *videoTrack = [asset tracksWithMediaType:AVMediaTypeVideo][0];
-    //AVAssetTrack *audioTrack = [asset tracksWithMediaType:AVMediaTypeAudio][0];
-    
     [compositionVideoTrack insertTimeRange:range ofTrack:videoTrack atTime:kCMTimeZero error:&error];
-    //[compositionAudioTrack insertTimeRange:range ofTrack:audioTrack atTime:kCMTimeZero error:&error];
-    
+
     AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
     instruction.timeRange = range;
     
@@ -1232,17 +1244,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     //sleep(1);
 }
 
-- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSMutableDictionary *)metadata
+- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSDictionary *)metadata
 {
-    NSDateFormatter *outputFormatter = [[NSDateFormatter alloc] init];
-    [outputFormatter setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
-    NSString *date = [outputFormatter stringFromDate:[NSDate date]];
-    [metadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeOriginal];
-    [metadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeDigitized];
-    [metadata setObject:[NSNumber numberWithInt:0] forKey:(NSString *)kCGImagePropertyOrientation];
-    [metadata setObject:[NSNumber numberWithInt:(int)image.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
-    [metadata setObject:[NSNumber numberWithInt:(int)image.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
-
     // メタデータ付きの静止画データの格納先を用意する
     NSMutableData *imageData = [NSMutableData new];
     // imageDataにjpegで１枚画像を書き込む設定のCGImageDestinationRefを作成する
