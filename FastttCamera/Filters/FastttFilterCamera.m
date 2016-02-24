@@ -425,11 +425,16 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         _previewView.fillMode = kGPUImageFillModePreserveAspectRatioAndFill;
     }
     
+    if (!_transformFilter) {
+        _transformFilter = [[GPUImageTransformFilter alloc]init];
+    }
+    
     [_stillCamera removeAllTargets];
     [self.fastFilter.filter removeAllTargets];
     
     [_stillCamera addTarget:self.fastFilter.filter];
     [self.fastFilter.filter addTarget:_previewView];
+    [self.fastFilter.filter addTarget: _transformFilter];
 }
 
 - (void)_removePreviewLayer
@@ -646,30 +651,23 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     // crop clip to screen ratio
     CGFloat complimentHeight = [self getComplimentSize:width];
-
-    
     _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:_movieURL size:CGSizeMake(width, complimentHeight)];
     _movieWriter.encodingLiveVideo = YES;
     _movieWriter.shouldPassthroughAudio = YES;
     
-    _transformFilter = [[GPUImageTransformFilter alloc]init];
-    
-    [self.fastFilter.filter addTarget: _transformFilter];
     [_transformFilter addTarget:_movieWriter];
     
     CGAffineTransform transform = CGAffineTransformIdentity;
-    CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
-    if (ratio >= 1.5) {
+    if ([self getOutputRatio] >= 1.5) {
         _stillCamera.audioEncodingTarget = _movieWriter;
         _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
-        [self zoomToScale:_currentZoomScale];
+        //[self zoomToScale:_currentZoomScale];
     }
     else{
         [self startRecordAudio];
         transform = CGAffineTransformScale(transform, 1.0, height/complimentHeight);
     }
     _transformFilter.affineTransform = transform;
-
 
     [_movieWriter startRecording];
     
@@ -683,14 +681,12 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     [_movieWriter finishRecordingWithCompletionHandler:^{
         [_transformFilter removeTarget:_movieWriter];
-        [self.fastFilter.filter removeTarget:_transformFilter];
         _stillCamera.audioEncodingTarget = nil;
 
-        CGFloat ratio = _previewView.bounds.size.height/_previewView.bounds.size.width;
-        if (ratio >= 1.5) {
+        if ([self getOutputRatio] >= 1.5) {
             [self.delegate cameraController:self didFinishRecordingVideo: _movieURL];
             _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-            [self zoomToScale:_currentZoomScale];
+            //[self zoomToScale:_currentZoomScale];
         }else{
             [self stopRecordAudio];
             [self addSoundToMovie];
@@ -761,6 +757,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         [_audioRecorder stop];
         
         NSError *error = nil;
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&error];
         BOOL success = [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
         if(!success){NSLog(@"AudioSession setActive error [%@]", [error localizedDescription]);}
     }
@@ -810,15 +807,6 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
                                  [self.delegate cameraController:self didFinishCapturingImage:capturedImage];
                              });
                          }
-                         
-                         NSDateFormatter *outputFormatter = [[NSDateFormatter alloc] init];
-                         [outputFormatter setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
-                         NSString *date = [outputFormatter stringFromDate:[NSDate date]];
-                         [self.currentMetadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeOriginal];
-                         [self.currentMetadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeDigitized];
-                         [self.currentMetadata setObject:[NSNumber numberWithInt:imageOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
-                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
-                         [self.currentMetadata setObject:[NSNumber numberWithInt:(int)capturedImage.fullImage.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
                          
                          NSData *imageData = [self createImageDataFromImage:capturedImage.fullImage metaData:self.currentMetadata];
                          
@@ -976,6 +964,10 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     if (ratio == 1.775) ratio = 1.77777777777778;
     
     return size * ratio;
+}
+
+- (CGFloat)getOutputRatio {
+    return _previewView.bounds.size.height/_previewView.bounds.size.width;
 }
 
 - (UIInterfaceOrientation)orientationForTrack:(AVAsset *)asset {
@@ -1231,7 +1223,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     [self.fastFilter.filter useNextFrameForImageCapture];
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
-    UIImage *currentFilteredImage = [self.fastFilter.filter imageFromCurrentFramebuffer];
+    UIImage *currentFilteredImage = [self.fastFilter.filter  imageFromCurrentFramebuffer];
     
     if (self.isCapturingImage) {
         [self _processCameraPhoto:currentFilteredImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
@@ -1240,8 +1232,17 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     //sleep(1);
 }
 
-- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSDictionary *)metadata
+- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSMutableDictionary *)metadata
 {
+    NSDateFormatter *outputFormatter = [[NSDateFormatter alloc] init];
+    [outputFormatter setDateFormat:@"yyyy:MM:dd HH:mm:ss"];
+    NSString *date = [outputFormatter stringFromDate:[NSDate date]];
+    [metadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeOriginal];
+    [metadata setObject:date forKey:(NSString*)kCGImagePropertyExifDateTimeDigitized];
+    [metadata setObject:[NSNumber numberWithInt:0] forKey:(NSString *)kCGImagePropertyOrientation];
+    [metadata setObject:[NSNumber numberWithInt:(int)image.size.height] forKey:(NSString *)kCGImagePropertyPixelHeight];
+    [metadata setObject:[NSNumber numberWithInt:(int)image.size.width] forKey:(NSString *)kCGImagePropertyPixelWidth];
+
     // メタデータ付きの静止画データの格納先を用意する
     NSMutableData *imageData = [NSMutableData new];
     // imageDataにjpegで１枚画像を書き込む設定のCGImageDestinationRefを作成する
