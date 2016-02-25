@@ -720,7 +720,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     if ( [AVAudioSession sharedInstance].inputAvailable )   // for iOS6 [session inputIsAvailable]  iOS5
     {
-        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryRecord error:&error];
+        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord error:&error];
     }
     
     if ( error != nil )
@@ -728,6 +728,14 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         NSLog(@"Error when preparing audio session :%@", [error localizedDescription]);
         return;
     }
+    
+    [[AVAudioSession sharedInstance] setMode:AVAudioSessionModeVideoRecording error:&error];
+    if ( error != nil )
+    {
+        NSLog(@"Error when setting audio session :%@", [error localizedDescription]);
+        return;
+    }
+    
     [[AVAudioSession sharedInstance] setActive:YES error:&error];
     if ( error != nil )
     {
@@ -757,7 +765,8 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
         [_audioRecorder stop];
         
         NSError *error = nil;
-        [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayback error:&error];
+        //[[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryPlayAndRecord error:&error];
+        //[[AVAudioSession sharedInstance] setMode:AVAudioSessionModeDefault error:&error];
         BOOL success = [[AVAudioSession sharedInstance] setActive:NO withOptions:AVAudioSessionSetActiveOptionNotifyOthersOnDeactivation error:&error];
         if(!success){NSLog(@"AudioSession setActive error [%@]", [error localizedDescription]);}
     }
