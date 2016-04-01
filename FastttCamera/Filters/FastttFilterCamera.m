@@ -904,7 +904,7 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     
     NSArray *videoTracks = [asset tracksWithMediaType:AVMediaTypeVideo];
     if (videoTracks.count == 0) {
-        return
+        return;
     }
     
     AVAssetTrack *videoTrack = videoTracks[0];
