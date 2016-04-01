@@ -902,7 +902,12 @@ cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
     // 2
     CMTimeRange range = CMTimeRangeMake(kCMTimeZero, asset.duration);
     
-    AVAssetTrack *videoTrack = [asset tracksWithMediaType:AVMediaTypeVideo][0];
+    NSArray *videoTracks = [asset tracksWithMediaType:AVMediaTypeVideo];
+    if (videoTracks.count == 0) {
+        return
+    }
+    
+    AVAssetTrack *videoTrack = videoTracks[0];
     [compositionVideoTrack insertTimeRange:range ofTrack:videoTrack atTime:kCMTimeZero error:&error];
 
     AVMutableVideoCompositionInstruction *instruction = [AVMutableVideoCompositionInstruction videoCompositionInstruction];
