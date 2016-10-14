@@ -9,14 +9,12 @@
 #import <AVFoundation/AVFoundation.h>
 
 #import "FastttCamera.h"
-#import "IFTTTDeviceOrientation.h"
 #import "UIImage+FastttCamera.h"
 #import "AVCaptureDevice+FastttCamera.h"
-#import "FastttFocus.h"
 #import "FastttZoom.h"
 #import "FastttCapturedImage+Process.h"
 
-@interface FastttCamera () <FastttFocusDelegate, FastttZoomDelegate>
+@interface FastttCamera () <FastttFocusDelegate, FastttZoomDelegate, AVCaptureFileOutputRecordingDelegate>
 
 @property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
 @property (nonatomic, strong) FastttFocus *fastFocus;
@@ -24,6 +22,7 @@
 @property (nonatomic, strong) AVCaptureSession *session;
 @property (nonatomic, strong) AVCaptureVideoPreviewLayer *previewLayer;
 @property (nonatomic, strong) AVCaptureStillImageOutput *stillImageOutput;
+@property (nonatomic, retain) AVCaptureMovieFileOutput *movieFileOutput;
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
 
@@ -48,7 +47,10 @@
             scalesImage = _scalesImage,
             cameraDevice = _cameraDevice,
             cameraFlashMode = _cameraFlashMode,
-            cameraTorchMode = _cameraTorchMode;
+            cameraTorchMode = _cameraTorchMode,
+            movieFileOutput = _movieFileOutput,
+            normalizesVideoOrientation = _normalizesVideoOrientation, 
+            cropsVideoToVisibleAspectRatio = _cropsVideoToVisibleAspectRatio;
 
 - (instancetype)init
 {
@@ -65,6 +67,8 @@
         _maxScaledDimension = 0.f;
         _maxZoomFactor = 1.f;
         _normalizesImageOrientations = YES;
+        _normalizesVideoOrientation = YES;
+        _cropsVideoToVisibleAspectRatio = YES;
         _returnsRotatedPreview = YES;
         _interfaceRotatesWithOrientation = YES;
         _fixedInterfaceOrientation = UIDeviceOrientationPortrait;
@@ -432,6 +436,10 @@
 #if !TARGET_IPHONE_SIMULATOR
                 AVCaptureDeviceInput *deviceInput = [AVCaptureDeviceInput deviceInputWithDevice:device error:nil];
                 [_session addInput:deviceInput];
+
+                AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+                AVCaptureDeviceInput *audioInput = [AVCaptureDeviceInput deviceInputWithDevice:audioDevice error:nil];
+                [_session addInput:audioInput];
                 
                 switch (device.position) {
                     case AVCaptureDevicePositionBack:
@@ -449,12 +457,19 @@
                 [self setCameraFlashMode:_cameraFlashMode];
 #endif
                 
+                [_session beginConfiguration];
+
                 NSDictionary *outputSettings = @{AVVideoCodecKey:AVVideoCodecJPEG};
                 
                 _stillImageOutput = [AVCaptureStillImageOutput new];
                 _stillImageOutput.outputSettings = outputSettings;
                 
                 [_session addOutput:_stillImageOutput];
+
+                _movieFileOutput = [AVCaptureMovieFileOutput new];
+                [_session addOutput:_movieFileOutput];
+
+                [_session commitConfiguration];
                 
                 _deviceOrientation = [IFTTTDeviceOrientation new];
                 
@@ -493,6 +508,64 @@
     [self _removePreviewLayer];
     
     _session = nil;
+}
+
+#pragma mark - Capturing Video
+- (void)startRecordingVideo {
+
+
+    AVCaptureConnection *videoConnection = nil;
+
+    for (AVCaptureConnection *connection in [_movieFileOutput connections]) {
+        for (AVCaptureInputPort *port in [connection inputPorts]) {
+            if ([[port mediaType] isEqual:AVMediaTypeVideo]) {
+                videoConnection = connection;
+                break;
+            }
+        }
+
+        if (videoConnection) {
+            break;
+        }
+    }
+
+    if ([videoConnection isVideoOrientationSupported]) {
+        [videoConnection setVideoOrientation:[self _currentCaptureVideoOrientationForDevice]];
+    }
+
+    if ([videoConnection isVideoMirroringSupported]) {
+        [videoConnection setVideoMirrored:(_cameraDevice == FastttCameraDeviceFront)];
+    }
+ 
+    NSString *plistPath;
+    NSString *rootPath;
+    rootPath = [NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES) objectAtIndex:0];
+    plistPath = [rootPath stringByAppendingPathComponent:@"temp.mov"];
+    NSURL *fileURL = [[NSURL alloc] initFileURLWithPath:plistPath];
+    NSFileManager *fileManager = [NSFileManager defaultManager];
+    if ([fileManager fileExistsAtPath:plistPath]) {
+         // @TODO: REMOVE VIDEO if there's something at that path
+
+        NSError *error;
+        [fileManager removeItemAtPath:[fileURL absoluteString] error:&error];
+    }
+    [_movieFileOutput startRecordingToOutputFileURL:fileURL recordingDelegate:self];
+}
+ 
+- (void)stopRecordingVideo {
+     [_movieFileOutput stopRecording];
+ }
+ 
+#pragma mark - AVCaptureFileOutputRecordingDelegate
+ 
+- (void)captureOutput:(AVCaptureFileOutput *)captureOutput
+     didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL
+                        fromConnections:(NSArray *)connections
+                                  error:(NSError *)error {
+
+    if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
+        [self.delegate cameraController:self didFinishRecordingVideo:outputFileURL];
+    }
 }
 
 #pragma mark - Capturing a Photo

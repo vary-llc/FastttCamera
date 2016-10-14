@@ -18,8 +18,7 @@
 /**
  *  The delegate of the FastttCamera instance.
  */
-@property (nonatomic, weak) id <FastttCameraDelegate> delegate;
-
+@property(nonatomic, weak) id<FastttCameraDelegate> delegate;
 
 #pragma mark - Advanced Configuration Options
 
@@ -74,7 +73,7 @@
  *  cameraController:didFinishNormalizingCapturedImage: is the only other method that will
  *  be called, and only if normalizesImageOrientations == YES.
  */
-@property (nonatomic, assign) BOOL cropsImageToVisibleAspectRatio;
+@property(nonatomic, assign) BOOL cropsImageToVisibleAspectRatio;
 
 /**
  *  Defaults to YES. Set this to NO if you don't want FastttCamera to return a scaled version of the
@@ -82,14 +81,14 @@
  *  FastttCapturedImage object, and will trigger the cameraController:didFinishScalingCapturedImage:
  *  delegate method when it is available.
  */
-@property (nonatomic, assign) BOOL scalesImage;
+@property(nonatomic, assign) BOOL scalesImage;
 
 /**
  *  Defaults to scaling the cropped image to fit within the size of the camera preview. If you'd like to
  *  set an explicit max dimension for scaling the image, set it here. This can be useful if you have specific
  *  requirements for uploading the image.
  */
-@property (nonatomic, assign) CGFloat maxScaledDimension;
+@property(nonatomic, assign) CGFloat maxScaledDimension;
 
 /**
  *  Defaults to YES. Set this to NO if you would like to only use the images initially returned by FastttCamera
@@ -111,6 +110,11 @@
  *  images are still displayed correctly when orientation lock is off but your interface stays in portrait.
  */
 @property (nonatomic, assign) BOOL interfaceRotatesWithOrientation;
+
+
+@property(nonatomic, assign) BOOL normalizesVideoOrientation;
+
+@property(nonatomic, assign) BOOL cropsVideoToVisibleAspectRatio;
 
 /**
  *  Defaults to UIDeviceOrientationPortrait. Set this to UIDeviceOrientationLandscapeLeft or UIDeviceOrientationLandscapeRight
@@ -222,6 +226,10 @@
  */
 - (void)takePicture;
 
+#pragma mark - Take a video!
+
+- (void)startRecordingVideo;
+- (void)stopRecordingVideo;
 
 #pragma mark - Process a photo
 
@@ -283,7 +291,6 @@
 - (void)stopRunning;
 
 @end
-
 
 #pragma mark - FastttCameraDelegate
 
@@ -358,5 +365,9 @@
  *  finds that permission to access the camera has not been granted.
  */
 - (void)userDeniedCameraPermissionsForCameraController:(id<FastttCameraInterface>)cameraController;
+
+- (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishRecordingVideo:(NSURL *)videoURL;
+
+- (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishNormalizedCapturedVideo:(NSURL *)videoURL;
 
 @end
