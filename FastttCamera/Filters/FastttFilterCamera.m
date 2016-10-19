@@ -326,7 +326,8 @@
 - (void)setCameraFlashMode:(FastttCameraFlashMode)cameraFlashMode
 {
     AVCaptureDevice *device = [self _currentCameraDevice];
-    
+
+            
     if ([AVCaptureDevice isFlashAvailableForCameraDevice:self.cameraDevice]) {
         _cameraFlashMode = cameraFlashMode;
         [device setCameraFlashMode:cameraFlashMode];
