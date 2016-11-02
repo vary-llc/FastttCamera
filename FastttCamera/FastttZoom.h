@@ -17,6 +17,8 @@
  */
 @interface FastttZoom : NSObject
 
+@property (nonatomic, assign) CGFloat currentScale;
+    
 /**
  *  The delegate of the FastttFocus instance.
  */

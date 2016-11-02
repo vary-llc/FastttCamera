@@ -8,6 +8,8 @@
 
 #import <UIKit/UIKit.h>
 #import "FastttCameraInterface.h"
+#import "IFTTTDeviceOrientation.h"
+#import "FastttZoom.h"
 
 /**
  *  Public class for you to use to create a filtered FastttFilterCamera!
@@ -19,6 +21,9 @@
  *  use an instance of the standard FastttCamera instead.
  */
 @interface FastttFilterCamera : UIViewController <FastttCameraInterface>
+
+@property (nonatomic, strong) FastttZoom *fastZoom;
+@property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
 
 /**
  *  The current lookup image for filtering both the camera's live preview and the captured image, 

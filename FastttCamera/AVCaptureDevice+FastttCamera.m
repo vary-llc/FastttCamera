@@ -48,7 +48,11 @@
 
 + (AVCaptureDevice *)cameraDevice:(FastttCameraDevice)cameraDevice
 {
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    //NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    
+    NSArray *deviceTypes = @[AVCaptureDeviceTypeBuiltInDuoCamera, AVCaptureDeviceTypeBuiltInWideAngleCamera];
+    AVCaptureDeviceDiscoverySession *discoverySession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
+    NSArray *devices = [discoverySession devices].reverseObjectEnumerator;
     
     for (AVCaptureDevice *device in devices) {
         if ([device position] == [self _avPositionForDevice:cameraDevice]) {

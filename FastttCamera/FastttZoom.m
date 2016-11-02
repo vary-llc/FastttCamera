@@ -7,14 +7,17 @@
 //
 
 #import "FastttZoom.h"
+#import "IFTTTDeviceOrientation.h"
 
-CGFloat const kZoomCircleSize = 20.f;
+CGFloat const kZoomCircleSize = 60.f;
 
 @interface FastttZoom ()
-
+{
+    UILabel *zoomLabel;
+    IFTTTDeviceOrientation *deviceOrientation;
+}
 @property (nonatomic, strong) UIView *view;
 @property (nonatomic, strong) UIPinchGestureRecognizer *pinchGestureRecognizer;
-@property (nonatomic, assign) CGFloat currentScale;
 @property (nonatomic, assign) CGFloat lastScale;
 
 @end
@@ -66,6 +69,68 @@ CGFloat const kZoomCircleSize = 20.f;
     // TODO: draw a line with a circle and plus minus at the bottom similar to system camera zoom indicator
     
     // CGFloat zoomPercent = [self _zoomPercentFromZoomScale:self.currentScale];
+    self.currentScale = zoomScale;
+    if (!deviceOrientation) {
+        deviceOrientation = [IFTTTDeviceOrientation new];
+    }
+    
+    if (!zoomLabel) {
+        zoomLabel = [UILabel new];
+        zoomLabel.frame = CGRectMake(0, 0, kZoomCircleSize, kZoomCircleSize);
+        zoomLabel.layer.borderColor = [UIColor whiteColor].CGColor;
+        zoomLabel.layer.borderWidth = 1.f;
+        zoomLabel.layer.cornerRadius = kZoomCircleSize / 2;
+        zoomLabel.clipsToBounds = YES;
+        zoomLabel.backgroundColor = [UIColor colorWithWhite:0 alpha:0.1];
+        zoomLabel.textColor = [UIColor whiteColor];
+        zoomLabel.textAlignment = NSTextAlignmentCenter;
+        zoomLabel.font = [UIFont systemFontOfSize:20 weight:UIFontWeightRegular];
+    }
+    
+    zoomLabel.center = self.view.center;
+
+    if (![self.view.subviews containsObject: zoomLabel]){
+        [self.view addSubview: zoomLabel];
+    }else{
+        [self.view bringSubviewToFront: zoomLabel];
+    }
+
+    zoomLabel.text = [NSString stringWithFormat:@"%.1f×", zoomScale];
+    zoomLabel.alpha = 0.f;
+    
+    switch (deviceOrientation.orientation) {
+        case UIDeviceOrientationPortrait:
+        zoomLabel.transform = CGAffineTransformIdentity;
+        break;
+        case UIDeviceOrientationPortraitUpsideDown:
+        zoomLabel.transform = CGAffineTransformMakeRotation(180.0 * M_PI / 180.0);
+        break;
+        case UIDeviceOrientationLandscapeLeft:
+        zoomLabel.transform = CGAffineTransformMakeRotation(90.0 * M_PI / 180.0);
+        break;
+        case UIDeviceOrientationLandscapeRight:
+        zoomLabel.transform = CGAffineTransformMakeRotation(270.0 * M_PI / 180.0);
+        break;
+        default:
+        break;
+    }
+    
+    [UIView animateWithDuration:0.3f
+                          delay:0.f
+                        options:UIViewAnimationOptionCurveEaseIn
+                     animations:^{
+                         zoomLabel.alpha = 1.f;
+                         
+                     } completion:^(BOOL finished){
+                         [UIView animateWithDuration:0.2f
+                                               delay:0.5f
+                                             options:UIViewAnimationOptionCurveEaseIn
+                                          animations:^{
+                                              zoomLabel.alpha = 0.f;
+                                          } completion:^(BOOL finishedFadeout){
+                                              //[zoomLabel removeFromSuperview];
+                                          }];
+                     }];
 }
 
 - (void)resetZoom

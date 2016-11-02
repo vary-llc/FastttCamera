@@ -10,7 +10,9 @@
 #import "IFTTTDeviceOrientation.h"
 
 @interface IFTTTDeviceOrientation ()
-
+{
+    UIDeviceOrientation currentOrientation;
+}
 @property (nonatomic, strong) CMMotionManager *motionManager;
 
 @end
@@ -20,7 +22,7 @@
 - (id)init
 {
     if ((self = [super init])) {
-        
+        currentOrientation = UIDeviceOrientationPortrait;
         [self setupMotionManager];
     }
     
@@ -72,11 +74,13 @@
 #else
     CMAcceleration acceleration = _motionManager.accelerometerData.acceleration;
     if (acceleration.z < -0.75f) {
-        return UIDeviceOrientationFaceUp;
+        return currentOrientation;
+        //return UIDeviceOrientationFaceUp;
     }
     
     if (acceleration.z > 0.75f) {
-        return UIDeviceOrientationFaceDown;
+        return currentOrientation;
+        //return UIDeviceOrientationFaceDown;
     }
     
     CGFloat scaling = 1.f / (ABS(acceleration.x) + ABS(acceleration.y));
@@ -84,19 +88,27 @@
     CGFloat x = acceleration.x * scaling;
     CGFloat y = acceleration.y * scaling;
     
-    if (x < -0.5f) {
+    if (x < -0.75f) {
+        currentOrientation = UIDeviceOrientationLandscapeLeft;
         return UIDeviceOrientationLandscapeLeft;
     }
     
-    if (x > 0.5f) {
+    if (x > 0.75f) {
+        currentOrientation = UIDeviceOrientationLandscapeRight;
         return UIDeviceOrientationLandscapeRight;
     }
     
-    if (y > 0.5f) {
+    if (y > 0.75f) {
+        currentOrientation = UIDeviceOrientationPortraitUpsideDown;
         return UIDeviceOrientationPortraitUpsideDown;
     }
     
-    return UIDeviceOrientationPortrait;
+    if (y < -0.75f) {
+        currentOrientation = UIDeviceOrientationPortrait;
+        return UIDeviceOrientationPortrait;
+    }
+
+    return currentOrientation;
 #endif
 }
 

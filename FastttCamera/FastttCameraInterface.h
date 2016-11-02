@@ -222,6 +222,17 @@
  */
 - (void)takePicture;
 
+#pragma mark - Take a video!
+    
+    /**
+     *  Triggers the camera to start recording a video.
+     */
+- (void)startRecordingVideo;
+    
+    /**
+     *  Triggers the camera to stop recording a video.
+     */
+- (void)stopRecordingVideo;
 
 #pragma mark - Process a photo
 
@@ -345,7 +356,16 @@
  *  @note This method will not be called if normalizesImageOrientations is set to NO.
  */
 - (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishNormalizingCapturedImage:(FastttCapturedImage *)capturedImage;
-
+    
+    /**
+     *  Called when the camera controller has finished recording video
+     *
+     *  @param cameraController The FastttCamera instance that captured the photo.
+     *
+     *  @param videoURL Location of the video without the proper cropping and orientation
+     */
+- (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishRecordingVideo:(NSURL *)videoURL;
+    
 /**
  *  Called when the camera controller asks for permission to access the user's camera and is denied.
  *
