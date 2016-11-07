@@ -8,6 +8,8 @@
 
 #import <AVFoundation/AVFoundation.h>
 #import <GPUImage/GPUImage.h>
+#import <ImageIO/ImageIO.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 #import "FastttFilterCamera.h"
 #import "UIImage+FastttCamera.h"
 #import "AVCaptureDevice+FastttCamera.h"
@@ -15,7 +17,7 @@
 #import "FastttFilter.h"
 #import "FastttCapturedImage+Process.h"
 
-@interface FastttFilterCamera () <FastttFocusDelegate, FastttZoomDelegate>
+@interface FastttFilterCamera () <FastttFocusDelegate, FastttZoomDelegate, GPUImageVideoCameraDelegate>
 {
     NSURL *movieURL;
 }
@@ -26,29 +28,30 @@
 @property (nonatomic, strong) GPUImageView *previewView;
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
+@property (nonatomic, assign) BOOL isTakingPhotoSilent;
 
 @end
 
 @implementation FastttFilterCamera
 
 @synthesize delegate = _delegate,
-            returnsRotatedPreview = _returnsRotatedPreview,
-            showsFocusView = _showsFocusView,
-            maxScaledDimension = _maxScaledDimension,
-            normalizesImageOrientations = _normalizesImageOrientations,
-            cropsImageToVisibleAspectRatio = _cropsImageToVisibleAspectRatio,
-            interfaceRotatesWithOrientation = _interfaceRotatesWithOrientation,
-            fixedInterfaceOrientation = _fixedInterfaceOrientation,
-            handlesTapFocus = _handlesTapFocus,
-            handlesZoom = _handlesZoom,
-            maxZoomFactor = _maxZoomFactor,
-            showsZoomView = _showsZoomView,
-            gestureView = _gestureView,
-            gestureDelegate = _gestureDelegate,
-            scalesImage = _scalesImage,
-            cameraDevice = _cameraDevice,
-            cameraFlashMode = _cameraFlashMode,
-            cameraTorchMode = _cameraTorchMode;
+returnsRotatedPreview = _returnsRotatedPreview,
+showsFocusView = _showsFocusView,
+maxScaledDimension = _maxScaledDimension,
+normalizesImageOrientations = _normalizesImageOrientations,
+cropsImageToVisibleAspectRatio = _cropsImageToVisibleAspectRatio,
+interfaceRotatesWithOrientation = _interfaceRotatesWithOrientation,
+fixedInterfaceOrientation = _fixedInterfaceOrientation,
+handlesTapFocus = _handlesTapFocus,
+handlesZoom = _handlesZoom,
+maxZoomFactor = _maxZoomFactor,
+showsZoomView = _showsZoomView,
+gestureView = _gestureView,
+gestureDelegate = _gestureDelegate,
+scalesImage = _scalesImage,
+cameraDevice = _cameraDevice,
+cameraFlashMode = _cameraFlashMode,
+cameraTorchMode = _cameraTorchMode;
 
 - (instancetype)init
 {
@@ -110,7 +113,7 @@
     _fastFocus = nil;
     _fastFilter = nil;
     _fastZoom = nil;
-
+    
     [self _teardownCaptureSession];
     
     [[NSNotificationCenter defaultCenter] removeObserver:self];
@@ -221,6 +224,15 @@
     [self _takePhoto];
 }
 
+- (void)takePictureSilent
+{
+    if (!_deviceAuthorized) {
+        return;
+    }
+    
+    [self _takePhotoSilent];
+}
+
 - (void)cancelImageProcessing
 {
     if (_isCapturingImage) {
@@ -314,31 +326,41 @@
         return;
     }
     
+    _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
+
     if (_cameraDevice != cameraDevice) {
         _cameraDevice = cameraDevice;
     }
-    
+
     if (_stillCamera.cameraPosition != [AVCaptureDevice positionForCameraDevice:cameraDevice]) {
         [_stillCamera rotateCamera];
+    }
+    
+    if (cameraDevice == FastttCameraDeviceFront) {
+        self.view.transform = CGAffineTransformMakeScale(-1, 1);
+    }else{
+        self.view.transform = CGAffineTransformIdentity;
     }
     
     [self setCameraFlashMode:_cameraFlashMode];
     
     [self _resetZoom];
+    
+    [self setupCaptureSessionPreset];
 
 }
 
 - (void)setCameraFlashMode:(FastttCameraFlashMode)cameraFlashMode
 {
     AVCaptureDevice *device = [self _currentCameraDevice];
-
-            
+    
+    
     if ([AVCaptureDevice isFlashAvailableForCameraDevice:self.cameraDevice]) {
         _cameraFlashMode = cameraFlashMode;
         [device setCameraFlashMode:cameraFlashMode];
         return;
     }
-
+    
     _cameraFlashMode = FastttCameraFlashModeOff;
 }
 
@@ -406,20 +428,7 @@
     
     [_stillCamera removeAllTargets];
     [self.fastFilter.filter removeAllTargets];
-    
-    /*
-    CGFloat previewWidth = _previewView.bounds.size.width
-    CGFloat previewHeight = _previewView.bounds.size.height
-    CGFloat captureWidth = captureWidth
-    CGFloat captureHeight = captureHeight
-    CGFloat cropHeight = (captureWidth / previewWidth * previewHeight) / captureHeight
-    CGFloat cropY = (1 - cropHeight) / 2
-    
-    GPUImageCropFilter *cropFilter = [[GPUImageCropFilter alloc]initWithCropRegion:CGRectMake(0, cropY, 1.0f, cropHeight)];
-    [_stillCamera addTarget:cropFilter];
-    [cropFilter addTarget:self.fastFilter.filter];
-    */
-    
+
     if (_previewView.bounds.size.width == _previewView.bounds.size.height){
         GPUImageCropFilter *cropFilter = [[GPUImageCropFilter alloc]initWithCropRegion:CGRectMake(0, 0.125f, 1.0f, 0.75f)];
         [_stillCamera addTarget:cropFilter];
@@ -428,11 +437,31 @@
         [_stillCamera addTarget:self.fastFilter.filter];
     }
     
-    if (_previewView.bounds.size.height == [UIScreen mainScreen].bounds.size.height) {
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+    /*
+    AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
+    if (output) {
+        NSDictionary* outputSettings = [output videoSettings];
+        
+        long width  = [[outputSettings objectForKey:@"Width"]  longValue];
+        long height = [[outputSettings objectForKey:@"Height"] longValue];
+        
+        CGFloat previewWidth = _previewView.bounds.size.width;
+        CGFloat previewHeight = _previewView.bounds.size.height;
+        CGFloat captureWidth = height;
+        CGFloat captureHeight = width;
+        CGFloat cropHeight = (captureWidth / previewWidth * previewHeight) / captureHeight;
+        if (cropHeight > 1) {
+            cropHeight = 1;
+        }
+        CGFloat cropY = (1 - cropHeight) / 2;
+        
+        GPUImageCropFilter *cropFilter = [[GPUImageCropFilter alloc]initWithCropRegion:CGRectMake(0, cropY, 1.0f, cropHeight)];
+        [_stillCamera addTarget:cropFilter];
+        [cropFilter addTarget:self.fastFilter.filter];
     }else{
-        _stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+        [_stillCamera addTarget:self.fastFilter.filter];
     }
+    */
     
     [self.fastFilter.filter addTarget:_previewView];
 }
@@ -444,6 +473,85 @@
     
     [_previewView removeFromSuperview];
     _previewView = nil;
+}
+
+- (void)setupCaptureSessionPreset
+{
+    if (self.isVideoCamera) {
+        if ([_stillCamera.captureSession canSetSessionPreset:AVCaptureSessionPreset3840x2160] && self.cameraDevice == FastttCameraDeviceRear){
+            _stillCamera.captureSessionPreset = AVCaptureSessionPreset3840x2160;
+        }else{
+            _stillCamera.captureSessionPreset = AVCaptureSessionPresetHigh;
+        }
+        //[self _setupCaptureDeviceFormatWithHighestFps];
+    }else{
+        //_stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
+        [self _setupCaptureDeviceFormatWithLargestWidth];
+    }
+}
+
+- (void)_setupCaptureDeviceFormatWithHighestFps
+{
+    _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
+    
+    if (!_stillCamera.inputCamera) return;
+    
+    NSArray *formats = _stillCamera.inputCamera.formats;
+    
+    Float64 maxFrameRate = .0f;
+    int32_t maxWidth = 0;
+    AVCaptureDeviceFormat *targetFormat = nil;
+    for (AVCaptureDeviceFormat *format in formats) {
+        AVFrameRateRange *frameRateRange = format.videoSupportedFrameRateRanges[0];
+        Float64 frameRate = frameRateRange.maxFrameRate;
+        
+        CMFormatDescriptionRef desc = format.formatDescription;
+        CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
+        int32_t width = dimensions.width;
+        
+        if (frameRate >= maxFrameRate && width >= maxWidth) {
+            targetFormat = format;
+            
+            maxFrameRate = frameRate;
+            maxWidth = width;
+        }
+    }
+    
+    if (!targetFormat) return;
+    
+    if([_stillCamera.inputCamera lockForConfiguration: nil]){
+        _stillCamera.inputCamera.activeFormat = targetFormat;
+        [_stillCamera setFrameRate: maxFrameRate];
+        [_stillCamera.inputCamera unlockForConfiguration];
+    }
+}
+
+- (void)_setupCaptureDeviceFormatWithLargestWidth
+{
+    _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
+    
+    if (!_stillCamera.inputCamera) return;
+    
+    NSArray *formats = _stillCamera.inputCamera.formats;
+    
+    int32_t maxWidth = 0;
+    AVCaptureDeviceFormat *targetFormat = nil;
+    for (AVCaptureDeviceFormat *format in formats) {        
+        CMFormatDescriptionRef desc = format.formatDescription;
+        CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
+        int32_t width = dimensions.width;
+        if ( width >= maxWidth) {
+            targetFormat = format;
+            maxWidth = width;
+        }
+    }
+    
+    if (!targetFormat) return;
+
+    if([_stillCamera.inputCamera lockForConfiguration: nil]){
+        _stillCamera.inputCamera.activeFormat = targetFormat;
+        [_stillCamera.inputCamera unlockForConfiguration];
+    }
 }
 
 - (void)_setupCaptureSession
@@ -472,7 +580,7 @@
         if (_deviceAuthorized) {
             
             dispatch_async(dispatch_get_main_queue(), ^{
-    
+                
                 if (_stillCamera) {
                     return;
                 }
@@ -486,12 +594,17 @@
                     NSArray *devices = [discoverySession devices];
                     device = devices.lastObject;
                 }
-
+                
                 AVCaptureDevicePosition position = [device position];
                 
-                _stillCamera = [[GPUImageStillCamera alloc] initWithSessionPreset:AVCaptureSessionPresetPhoto cameraPosition:position];
+                _stillCamera = [[GPUImageStillCamera alloc] initWithSessionPreset:AVCaptureSessionPresetInputPriority cameraPosition:position];
                 _stillCamera.outputImageOrientation = UIInterfaceOrientationPortrait;
-                _stillCamera.horizontallyMirrorFrontFacingCamera = YES;
+                //_stillCamera.horizontallyMirrorFrontFacingCamera = YES;
+                _stillCamera.delegate = self;
+                
+                if (_stillCamera.videoCaptureConnection.supportsVideoStabilization){
+                    _stillCamera.videoCaptureConnection.preferredVideoStabilizationMode = AVCaptureVideoStabilizationModeAuto;
+                }
                 
                 switch (position) {
                     case AVCaptureDevicePositionBack:
@@ -509,8 +622,9 @@
                 [self setCameraFlashMode:_cameraFlashMode];
                 
                 _deviceOrientation = [IFTTTDeviceOrientation new];
-               
+                
                 if (self.isViewLoaded && self.view.window) {
+                    [self setupCaptureSessionPreset];
                     [self _insertPreviewLayer];
                     [self startRunning];
                     [self _setPreviewVideoOrientation];
@@ -558,11 +672,11 @@
 #else
     
     UIDeviceOrientation previewOrientation = [self _currentPreviewDeviceOrientation];
-
+    
     UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
-
+    
     [_stillCamera capturePhotoAsJPEGProcessedUpToFilter:self.fastFilter.filter withOrientation:outputImageOrientation withCompletionHandler:^(NSData *processedJPEG, NSError *error){
-
+        
         if (self.isCapturingImage) {
             if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
                 [self.delegate cameraController:self didFinishCapturingImageData:processedJPEG];
@@ -577,10 +691,91 @@
         }
     }];
     
-
 #endif
 }
+
+- (void)_takePhotoSilent
+{
+    if (self.isCapturingImage) {
+        return;
+    }
+    self.isCapturingImage = YES;
+    self.isTakingPhotoSilent = YES;
+}
+
+- (void)willOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer {
+    if (!sampleBuffer) {
+        return;
+    }
+    /*    NSLog(@"%@", [[((__bridge_transfer NSDictionary *)CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate)) objectForKey:(NSString *)kCGImagePropertyExifDictionary] valueForKey:kCGImagePropertyExifPixelYDimension]);
+     if (self.isCapturingImage) {
+     CFDictionaryRef metadataRef = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
+     self.metadata = ((__bridge_transfer NSDictionary *)CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate));
+     }
+     */
+    if (!self.isTakingPhotoSilent) {
+        return;
+    }
+    self.isTakingPhotoSilent = NO;
     
+    /*
+    [UIView animateWithDuration:0.1f animations:^{
+        self.view.alpha = 0;
+    } completion:^(BOOL finished) {
+        [UIView animateWithDuration:0.1f animations:^{
+            self.view.alpha = 1;
+        }];
+    }];
+    */
+    
+    BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
+#if TARGET_IPHONE_SIMULATOR
+    UIImage *fakeImage = [UIImage fastttFakeTestImage];
+    [self _processCameraPhoto:fakeImage needsPreviewRotation:needsPreviewRotation imageOrientation:UIImageOrientationUp previewOrientation:UIDeviceOrientationPortrait];
+#else
+    UIDeviceOrientation previewOrientation = [self _currentPreviewDeviceOrientation];
+    
+    UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
+    
+    [self.fastFilter.filter useNextFrameForImageCapture];
+    [_stillCamera processVideoSampleBuffer: sampleBuffer];
+    UIImage *processedImage = [self.fastFilter.filter imageFromCurrentFramebuffer/*WithOrientation:outputImageOrientation*/];
+    CFDictionaryRef metadataRef = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
+    NSDictionary *metadata = ((__bridge_transfer NSDictionary *)metadataRef);
+    NSData *processedJPEG = [self createImageDataFromImage:processedImage metaData: metadata];
+    
+    if (self.isCapturingImage) {
+        if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
+            [self.delegate cameraController:self didFinishCapturingImageData:processedJPEG];
+            self.isCapturingImage = NO;
+        }
+        
+        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+            [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+        });
+    }
+#endif
+}
+
+- (NSData *)createImageDataFromImage:(UIImage *)image metaData:(NSDictionary *)metadata
+{
+    NSMutableDictionary *fixedMetadata = metadata.mutableCopy;
+    NSMutableDictionary *tiff = [[metadata objectForKey:(NSString *)kCGImagePropertyTIFFDictionary] mutableCopy];
+    [fixedMetadata setObject:[self _exifOrientation] forKey:(NSString *)kCGImagePropertyOrientation];
+    [tiff setObject:[self _exifOrientation] forKey:(NSString *)kCGImagePropertyTIFFOrientation];
+    [fixedMetadata setObject:tiff.copy forKey:(NSString *)kCGImagePropertyTIFFDictionary];
+    
+    NSMutableData *imageData = [NSMutableData new];
+    CGImageDestinationRef dest = CGImageDestinationCreateWithData((__bridge CFMutableDataRef)imageData, kUTTypeJPEG, 1, NULL);
+    CGImageDestinationAddImage(dest, image.CGImage, (__bridge CFDictionaryRef)fixedMetadata.copy);
+    CGImageDestinationFinalize(dest);
+    CFRelease(dest);
+    
+    return imageData;
+}
+
+#pragma mark - Recording a Video
+
 - (void)startRecordingVideo
 {
     if (!_deviceAuthorized) {
@@ -598,51 +793,35 @@
         long width  = [[outputSettings objectForKey:@"Width"]  longValue];
         long height = [[outputSettings objectForKey:@"Height"] longValue];
         
-        GPUImageRotationMode rotationMode = kGPUImageNoRotation;
-        UIImageOrientation orientation = [self _outputImageOrientation];
+        if (width > 1920) {
+            width = 1920;
+        }
         
+        if (height > 1080) {
+            height = 1080;
+        }
+                
         switch ([self _outputImageOrientation]) {
-                case UIImageOrientationUp:
-                case UIImageOrientationUpMirrored:
+            case UIImageOrientationUp:
+            case UIImageOrientationDown:
+            case UIImageOrientationUpMirrored:
+            case UIImageOrientationDownMirrored:
             {
                 long buf = width;
                 width = height;
                 height = buf;
-                
-                if ([self _outputImageOrientation] == UIImageOrientationUp) {
-                    rotationMode = kGPUImageNoRotation;
-                }else{
-                    rotationMode = kGPUImageFlipHorizonal;
-                }
-                
             }
-                break;
-                case UIImageOrientationLeft:
-                    rotationMode = kGPUImageRotateLeft;
-                break;
-
-                case UIImageOrientationLeftMirrored:
-                    rotationMode = kGPUImageRotateRightFlipHorizontal;
-                break;
-
-                case UIImageOrientationRight:
-                    rotationMode = kGPUImageRotateRight;
-                break;
-
-                case UIImageOrientationRightMirrored:
-                    rotationMode = kGPUImageRotateRightFlipVertical;
                 break;
             default:
                 break;
         }
-
-                
+        
         _movieWriter = [[GPUImageMovieWriter alloc] initWithMovieURL:movieURL size:CGSizeMake(width, height)];
         _movieWriter.encodingLiveVideo = YES;
-        [_movieWriter setInputRotation:rotationMode atIndex:0];
+        [_movieWriter setInputRotation:[self _rotationMode] atIndex:0];
     }
     [self.fastFilter.filter addTarget:_movieWriter];
-
+    
     _stillCamera.audioEncodingTarget = _movieWriter;
     
     double delayToStartRecording = 0.5;
@@ -654,24 +833,24 @@
 }
 
 - (void)stopRecordingVideo
-    {
-        
-        if (!_movieWriter) {
-            return;
-        }
-        
-        [_movieWriter finishRecordingWithCompletionHandler:^{
-            _stillCamera.audioEncodingTarget = nil;
-            
-            if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
-                [self.delegate cameraController:self didFinishRecordingVideo: movieURL];
-            }
-            [self setCameraTorchMode:_cameraTorchMode];
-        }];
-        
-        _movieWriter = nil;
-        
+{
+    
+    if (!_movieWriter) {
+        return;
     }
+    
+    [_movieWriter finishRecordingWithCompletionHandler:^{
+        _stillCamera.audioEncodingTarget = nil;
+        
+        if ([self.delegate respondsToSelector:@selector(cameraController:didFinishRecordingVideo:)]) {
+            [self.delegate cameraController:self didFinishRecordingVideo: movieURL];
+        }
+        [self setCameraTorchMode:_cameraTorchMode];
+    }];
+    
+    _movieWriter = nil;
+    
+}
 
 #pragma mark - Processing a Photo
 
@@ -699,7 +878,7 @@
         }
         
         UIImage *fixedOrientationImage = [image fastttRotatedImageMatchingOrientation:imageOrientation];
-
+        
         FastttCapturedImage *capturedImage = [FastttCapturedImage fastttCapturedFullImage:fixedOrientationImage];
         
         [capturedImage cropToRect:cropRect
@@ -815,7 +994,6 @@
 
 - (UIImageOrientation)_outputImageOrientation
 {
-    NSLog(@"%lu", self.deviceOrientation.orientation);
     if (![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation]
         || !self.interfaceRotatesWithOrientation) {
         
@@ -847,6 +1025,83 @@
             return UIImageOrientationDownMirrored;
         }
     }
+}
+
+- (NSNumber *)_exifOrientation
+{
+    switch ([self _outputImageOrientation]) {
+        case UIImageOrientationUp:
+        case UIImageOrientationUpMirrored:
+            return [NSNumber numberWithInt:1];
+            break;
+        case UIImageOrientationDown:
+        case UIImageOrientationDownMirrored:
+            return [NSNumber numberWithInt:3];
+            break;
+        case UIImageOrientationLeft:
+        case UIImageOrientationRightMirrored:
+            return [NSNumber numberWithInt:8];
+            break;
+        case UIImageOrientationRight:
+        case UIImageOrientationLeftMirrored:
+            return [NSNumber numberWithInt:6];
+            break;
+        default:
+            return [NSNumber numberWithInt:1];
+            break;
+    }
+    
+    return [NSNumber numberWithInt:1];
+}
+
+/*- (NSNumber *)_exifOrientation
+ {
+ switch (self.deviceOrientation.orientation) {
+ case UIDeviceOrientationPortrait:
+ return [NSNumber numberWithInt:1];
+ break;
+ case UIDeviceOrientationPortraitUpsideDown:
+ return [NSNumber numberWithInt:3];
+ break;
+ case UIDeviceOrientationLandscapeLeft:
+ return [NSNumber numberWithInt:8];
+ break;
+ case UIDeviceOrientationLandscapeRight:
+ return [NSNumber numberWithInt:6];
+ break;
+ default:
+ return [NSNumber numberWithInt:1];
+ break;
+ }
+ 
+ return [NSNumber numberWithInt:1];
+ }
+ */
+- (GPUImageRotationMode)_rotationMode
+{
+        switch ([self _outputImageOrientation]) {
+            case UIImageOrientationUp:
+            case UIImageOrientationUpMirrored:
+                return kGPUImageNoRotation;
+                break;
+            case UIImageOrientationDown:
+            case UIImageOrientationDownMirrored:
+                return kGPUImageRotate180;
+                break;
+            case UIImageOrientationLeft:
+            case UIImageOrientationRightMirrored:
+                return kGPUImageRotateLeft;
+                break;           
+            case UIImageOrientationRight:
+            case UIImageOrientationLeftMirrored:
+                return kGPUImageRotateRight;
+                break;
+            default:
+                return kGPUImageNoRotation;
+                break;
+        }
+    
+    return kGPUImageNoRotation;
 }
 
 #pragma mark - Camera Permissions

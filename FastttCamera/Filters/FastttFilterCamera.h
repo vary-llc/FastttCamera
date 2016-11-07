@@ -24,6 +24,8 @@
 
 @property (nonatomic, strong) FastttZoom *fastZoom;
 @property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
+@property (nonatomic, strong) NSDictionary *metadata;
+@property (nonatomic, assign) BOOL isVideoCamera;
 
 /**
  *  The current lookup image for filtering both the camera's live preview and the captured image, 
@@ -55,5 +57,8 @@
  *  @return An instance of FastttFilterCamera.
  */
 + (instancetype)cameraWithFilterImage:(UIImage *)filterImage;
+
+- (void)takePictureSilent;
+- (void)setupCaptureSessionPreset;
 
 @end
