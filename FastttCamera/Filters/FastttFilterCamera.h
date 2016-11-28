@@ -24,8 +24,10 @@
 
 @property (nonatomic, strong) FastttZoom *fastZoom;
 @property (nonatomic, strong) IFTTTDeviceOrientation *deviceOrientation;
-@property (nonatomic, strong) NSDictionary *metadata;
 @property (nonatomic, assign) BOOL isVideoCamera;
+@property (nonatomic, assign) BOOL isTracking;
+@property (nonatomic, assign) BOOL isBeautify;
+@property (nonatomic, strong) UIView *watermarkView;
 
 /**
  *  The current lookup image for filtering both the camera's live preview and the captured image, 

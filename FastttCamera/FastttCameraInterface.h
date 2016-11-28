@@ -365,7 +365,9 @@
      *  @param videoURL Location of the video without the proper cropping and orientation
      */
 - (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishRecordingVideo:(NSURL *)videoURL;
-    
+
+- (void)cameraController:(id<FastttCameraInterface>)cameraController didFinishCapturedImages:(NSArray *)capturedImages frameRate:(Float64)frameRate;
+
 /**
  *  Called when the camera controller asks for permission to access the user's camera and is denied.
  *

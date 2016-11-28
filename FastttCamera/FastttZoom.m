@@ -70,6 +70,8 @@ CGFloat const kZoomCircleSize = 60.f;
     
     // CGFloat zoomPercent = [self _zoomPercentFromZoomScale:self.currentScale];
     self.currentScale = zoomScale;
+    return;
+    
     if (!deviceOrientation) {
         deviceOrientation = [IFTTTDeviceOrientation new];
     }
@@ -95,7 +97,7 @@ CGFloat const kZoomCircleSize = 60.f;
         [self.view bringSubviewToFront: zoomLabel];
     }
 
-    zoomLabel.text = [NSString stringWithFormat:@"%.1f×", zoomScale];
+    zoomLabel.text = [NSString stringWithFormat:@"%.1f�", zoomScale];
     zoomLabel.alpha = 0.f;
     
     switch (deviceOrientation.orientation) {

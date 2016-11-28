@@ -20,6 +20,11 @@
 @interface FastttFilterCamera () <FastttFocusDelegate, FastttZoomDelegate, GPUImageVideoCameraDelegate>
 {
     NSURL *movieURL;
+    NSMutableArray *trackingImages;
+    GPUImageUIElement *uiElementInput;
+    GPUImageTransformFilter *transformFilter;
+    BOOL isFaceDetecting;
+    CIDetector *faceDetector;
 }
 @property (nonatomic, strong) FastttFocus *fastFocus;
 @property (nonatomic, strong) GPUImageStillCamera *stillCamera;
@@ -29,7 +34,6 @@
 @property (nonatomic, assign) BOOL deviceAuthorized;
 @property (nonatomic, assign) BOOL isCapturingImage;
 @property (nonatomic, assign) BOOL isTakingPhotoSilent;
-
 @end
 
 @implementation FastttFilterCamera
@@ -337,9 +341,9 @@ cameraTorchMode = _cameraTorchMode;
     }
     
     if (cameraDevice == FastttCameraDeviceFront) {
-        self.view.transform = CGAffineTransformMakeScale(-1, 1);
+        _previewView.transform = CGAffineTransformMakeScale(-1, 1);
     }else{
-        self.view.transform = CGAffineTransformIdentity;
+        _previewView.transform = CGAffineTransformIdentity;
     }
     
     [self setCameraFlashMode:_cameraFlashMode];
@@ -395,6 +399,25 @@ cameraTorchMode = _cameraTorchMode;
     [self _insertPreviewLayer];
 }
 
+- (GPUImageFilterGroup *)createFilterGroup:(NSArray *)filters{
+    GPUImageFilterGroup *filterGroup = [[GPUImageFilterGroup alloc] init];
+    GPUImageFilter *beforeFilter = nil;
+    for (GPUImageFilter *filter in filters) {
+        [filterGroup addTarget:filter];
+        if (!beforeFilter){
+            beforeFilter = filter;
+            continue;
+        }
+        [beforeFilter addTarget:filter];
+        beforeFilter = filter;
+    }
+    GPUImageFilter *firstFilter = [filters objectAtIndex:0];
+    [filterGroup setInitialFilters:@[firstFilter]];
+    GPUImageFilter *endFilter = [filters lastObject];
+    [filterGroup setTerminalFilter:endFilter];
+    return filterGroup;
+}
+
 #pragma mark - Capture Session Management
 
 - (void)startRunning
@@ -429,14 +452,23 @@ cameraTorchMode = _cameraTorchMode;
     [_stillCamera removeAllTargets];
     [self.fastFilter.filter removeAllTargets];
 
+    NSMutableArray *filters = [NSMutableArray array];
+    [filters addObject:[GPUImageFilter new]];
+    if (self.isBeautify) {
+        GPUImageBilateralFilter *bilateralFilter = [[GPUImageBilateralFilter alloc] init];
+        bilateralFilter.distanceNormalizationFactor = 5.0;
+        [filters addObject:bilateralFilter];
+        
+        GPUImageBrightnessFilter *brightnessFilter = [[GPUImageBrightnessFilter alloc]init];
+        brightnessFilter.brightness = 0.03;
+        [filters addObject:brightnessFilter];
+    }
+
     if (_previewView.bounds.size.width == _previewView.bounds.size.height){
         GPUImageCropFilter *cropFilter = [[GPUImageCropFilter alloc]initWithCropRegion:CGRectMake(0, 0.125f, 1.0f, 0.75f)];
-        [_stillCamera addTarget:cropFilter];
-        [cropFilter addTarget:self.fastFilter.filter];
-    }else{
-        [_stillCamera addTarget:self.fastFilter.filter];
+        [filters addObject:cropFilter];
     }
-    
+        
     /*
     AVCaptureVideoDataOutput *output = _stillCamera.captureSession.outputs.firstObject;
     if (output) {
@@ -463,7 +495,61 @@ cameraTorchMode = _cameraTorchMode;
     }
     */
     
-    [self.fastFilter.filter addTarget:_previewView];
+    GPUImageFilterGroup *groupFilter = [self createFilterGroup: filters];
+    [_stillCamera addTarget:groupFilter];
+    
+    if (self.watermarkView) {
+        self.watermarkView.frame = _previewView.bounds;
+        GPUImageAlphaBlendFilter *blendFilter = [[GPUImageAlphaBlendFilter alloc] init];
+        blendFilter.mix = 0.75;
+        uiElementInput = [[GPUImageUIElement alloc] initWithView:self.watermarkView];
+        transformFilter = [[GPUImageTransformFilter alloc]init];
+        [groupFilter addTarget:blendFilter];
+        [uiElementInput addTarget:transformFilter];
+        [transformFilter addTarget:blendFilter];
+        [blendFilter addTarget:self.fastFilter.filter];
+        [self.fastFilter.filter addTarget:_previewView];
+
+        __unsafe_unretained GPUImageUIElement *weakUIElementInput = uiElementInput;
+        __unsafe_unretained GPUImageTransformFilter *weakTransformFilter = transformFilter;
+        __unsafe_unretained FastttCameraDevice *weakCameraDevice = _cameraDevice;
+        __weak typeof(self) weakSelf = self;
+        
+        [groupFilter setFrameProcessingCompletionBlock:^(GPUImageOutput * filter, CMTime frameTime){
+            @autoreleasepool {
+                CGAffineTransform transform = CGAffineTransformIdentity;
+                
+                switch ([weakSelf _outputImageOrientation]) {
+                    case UIImageOrientationUp:
+                    case UIImageOrientationUpMirrored:
+                        transform = CGAffineTransformIdentity;
+                        break;
+                    case UIImageOrientationDown:
+                    case UIImageOrientationDownMirrored:
+                        transform = CGAffineTransformMakeRotation((180.0 * M_PI) / 180.0);
+                        break;
+                    case UIImageOrientationLeft:
+                    case UIImageOrientationRightMirrored:
+                        transform = CGAffineTransformMakeRotation((90.0 * M_PI) / 180.0);
+                        break;
+                    case UIImageOrientationRight:
+                    case UIImageOrientationLeftMirrored:
+                        transform = CGAffineTransformMakeRotation((270.0 * M_PI) / 180.0);
+                        break;
+                    default:
+                        transform = CGAffineTransformIdentity;
+                        break;
+                }
+                
+                [weakTransformFilter setAffineTransform:transform];
+                [weakUIElementInput update];
+            }
+
+        }];
+    }else{
+        [groupFilter addTarget:self.fastFilter.filter];
+        [self.fastFilter.filter addTarget:_previewView];
+    }
 }
 
 - (void)_removePreviewLayer
@@ -486,8 +572,10 @@ cameraTorchMode = _cameraTorchMode;
         //[self _setupCaptureDeviceFormatWithHighestFps];
     }else{
         //_stillCamera.captureSessionPreset = AVCaptureSessionPresetPhoto;
-        [self _setupCaptureDeviceFormatWithLargestWidth];
+        [self _setupCaptureDeviceFormatWithLargestHeight];
     }
+    
+    //isFaceDetecting = YES;
 }
 
 - (void)_setupCaptureDeviceFormatWithHighestFps
@@ -526,7 +614,7 @@ cameraTorchMode = _cameraTorchMode;
     }
 }
 
-- (void)_setupCaptureDeviceFormatWithLargestWidth
+- (void)_setupCaptureDeviceFormatWithLargestHeight
 {
     _stillCamera.captureSessionPreset = AVCaptureSessionPresetInputPriority;
     
@@ -534,15 +622,15 @@ cameraTorchMode = _cameraTorchMode;
     
     NSArray *formats = _stillCamera.inputCamera.formats;
     
-    int32_t maxWidth = 0;
+    int32_t maxHeight = 0;
     AVCaptureDeviceFormat *targetFormat = nil;
     for (AVCaptureDeviceFormat *format in formats) {        
         CMFormatDescriptionRef desc = format.formatDescription;
         CMVideoDimensions dimensions = CMVideoFormatDescriptionGetDimensions(desc);
-        int32_t width = dimensions.width;
-        if ( width >= maxWidth) {
+        int32_t height = dimensions.height;
+        if ( height >= maxHeight) {
             targetFormat = format;
-            maxWidth = width;
+            maxHeight = height;
         }
     }
     
@@ -681,13 +769,13 @@ cameraTorchMode = _cameraTorchMode;
             if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
                 [self.delegate cameraController:self didFinishCapturingImageData:processedJPEG];
                 self.isCapturingImage = NO;
+            }else{
+                UIImage *processedImage = [UIImage imageWithData:processedJPEG];
+                dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+                });
             }
-            
-            UIImage *processedImage = [UIImage imageWithData:processedJPEG];
-            
-            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-                [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
-            });
+
         }
     }];
     
@@ -707,26 +795,102 @@ cameraTorchMode = _cameraTorchMode;
     if (!sampleBuffer) {
         return;
     }
-    /*    NSLog(@"%@", [[((__bridge_transfer NSDictionary *)CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate)) objectForKey:(NSString *)kCGImagePropertyExifDictionary] valueForKey:kCGImagePropertyExifPixelYDimension]);
-     if (self.isCapturingImage) {
-     CFDictionaryRef metadataRef = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
-     self.metadata = ((__bridge_transfer NSDictionary *)CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate));
-     }
-     */
+    
+    if (isFaceDetecting) {
+        
+        if (!faceDetector) {
+            NSDictionary *detectorOptions = [[NSDictionary alloc] initWithObjectsAndKeys:CIDetectorAccuracyLow, CIDetectorAccuracy, nil];
+            faceDetector = [CIDetector detectorOfType:CIDetectorTypeFace context:nil options:detectorOptions];
+        }
+        
+        // got an image
+        CVPixelBufferRef pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
+        CFDictionaryRef attachments = CMCopyDictionaryOfAttachments(kCFAllocatorDefault, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
+        CIImage *ciImage = [[CIImage alloc] initWithCVPixelBuffer:pixelBuffer options:(__bridge NSDictionary *)attachments];
+        if (attachments)
+            CFRelease(attachments);
+        
+        NSDictionary *imageOptions = nil;
+        int exifOrientation;
+        
+        enum {
+            PHOTOS_EXIF_0ROW_TOP_0COL_LEFT                  = 1, //   1  =  0th row is at the top, and 0th column is on the left (THE DEFAULT).
+            PHOTOS_EXIF_0ROW_TOP_0COL_RIGHT                 = 2, //   2  =  0th row is at the top, and 0th column is on the right.
+            PHOTOS_EXIF_0ROW_BOTTOM_0COL_RIGHT      = 3, //   3  =  0th row is at the bottom, and 0th column is on the right.
+            PHOTOS_EXIF_0ROW_BOTTOM_0COL_LEFT       = 4, //   4  =  0th row is at the bottom, and 0th column is on the left.
+            PHOTOS_EXIF_0ROW_LEFT_0COL_TOP          = 5, //   5  =  0th row is on the left, and 0th column is the top.
+            PHOTOS_EXIF_0ROW_RIGHT_0COL_TOP         = 6, //   6  =  0th row is on the right, and 0th column is the top.
+            PHOTOS_EXIF_0ROW_RIGHT_0COL_BOTTOM      = 7, //   7  =  0th row is on the right, and 0th column is the bottom.
+            PHOTOS_EXIF_0ROW_LEFT_0COL_BOTTOM       = 8  //   8  =  0th row is on the left, and 0th column is the bottom.
+        };
+        exifOrientation = PHOTOS_EXIF_0ROW_RIGHT_0COL_TOP;
+        
+        imageOptions = [NSDictionary dictionaryWithObjectsAndKeys:[NSNumber numberWithInt:exifOrientation] , CIDetectorImageOrientation,[NSNumber numberWithBool:YES],CIDetectorEyeBlink,nil];
+        NSArray *features = [faceDetector featuresInImage:ciImage options:imageOptions];
+        
+        // get the clean aperture
+        // the clean aperture is a rectangle that defines the portion of the encoded pixel dimensions
+        // that represents image data valid for display.
+        //CMFormatDescriptionRef fdesc = CMSampleBufferGetFormatDescription(sampleBuffer);
+        //CGRect clap = CMVideoFormatDescriptionGetCleanAperture(fdesc, originIsTopLeft == false);
+        
+        dispatch_async(dispatch_get_main_queue(), ^(void) {
+            for(CIFaceFeature* face in features){
+                // 座標変換
+                CGRect faceRect = face.bounds;
+                CGFloat widthPer = (self.view.bounds.size.width/ciImage.extent.size.width);
+                CGFloat heightPer = (self.view.bounds.size.height/ciImage.extent.size.height);
+                
+                // UIKitは左上に原点があるが、CoreImageは左下に原点があるので揃える
+                faceRect.origin.y = ciImage.extent.size.height - faceRect.origin.y - faceRect.size.height;
+                
+                //倍率変換
+                faceRect.origin.x = faceRect.origin.x * widthPer;
+                faceRect.origin.y = faceRect.origin.y * heightPer;
+                faceRect.size.width = faceRect.size.width * widthPer;
+                faceRect.size.height = faceRect.size.height * heightPer;
+                
+                CGPoint facePoint = CGPointMake(CGRectGetMidX(faceRect), CGRectGetMidY(faceRect));
+                [self _focusAtPointOfInterest:facePoint];
+                [self.fastFocus showFocusViewAtPoint:facePoint];
+                isFaceDetecting = NO;
+                
+            }
+        });
+    }
+    
+    if (self.isTracking) {
+        if (!trackingImages) {
+            trackingImages = [NSMutableArray new];
+            CGFloat width  = 507;
+            if (_previewView.bounds.size.width == _previewView.bounds.size.height) {
+                width  = width * 1.1547;
+                [self.fastFilter.filter forceProcessingAtSize:CGSizeMake(width, width)];
+            }else{
+                [self.fastFilter.filter forceProcessingAtSize:CGSizeMake(width, width/3*4)];
+            }
+        }else{
+            [self.fastFilter.filter useNextFrameForImageCapture];
+            [_stillCamera processVideoSampleBuffer: sampleBuffer];
+            UIImageOrientation outputImageOrientation = [self _outputImageOrientation];
+            UIImage *processedImage = [self.fastFilter.filter imageFromCurrentFramebufferWithOrientation:outputImageOrientation];
+            CFDictionaryRef metadataRef = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
+            NSDictionary *metadata = ((__bridge_transfer NSDictionary *)metadataRef);
+            NSData *processedJPEG = [self createImageDataFromImage:processedImage metaData: metadata];
+            [trackingImages addObject:processedJPEG];
+        }
+    }else if (trackingImages) {
+        AVFrameRateRange *frameRateRange = _stillCamera.inputCamera.activeFormat.videoSupportedFrameRateRanges[0];
+        Float64 frameRate = frameRateRange.maxFrameRate;
+        [self.delegate cameraController:self didFinishCapturedImages:trackingImages.copy frameRate:frameRate];
+        trackingImages = nil;
+        [self.fastFilter.filter forceProcessingAtSize:CGSizeZero];
+    }
+
     if (!self.isTakingPhotoSilent) {
         return;
     }
     self.isTakingPhotoSilent = NO;
-    
-    /*
-    [UIView animateWithDuration:0.1f animations:^{
-        self.view.alpha = 0;
-    } completion:^(BOOL finished) {
-        [UIView animateWithDuration:0.1f animations:^{
-            self.view.alpha = 1;
-        }];
-    }];
-    */
     
     BOOL needsPreviewRotation = ![self.deviceOrientation deviceOrientationMatchesInterfaceOrientation];
 #if TARGET_IPHONE_SIMULATOR
@@ -739,7 +903,7 @@ cameraTorchMode = _cameraTorchMode;
     
     [self.fastFilter.filter useNextFrameForImageCapture];
     [_stillCamera processVideoSampleBuffer: sampleBuffer];
-    UIImage *processedImage = [self.fastFilter.filter imageFromCurrentFramebuffer/*WithOrientation:outputImageOrientation*/];
+    UIImage *processedImage = [self.fastFilter.filter imageFromCurrentFramebufferWithOrientation:outputImageOrientation];
     CFDictionaryRef metadataRef = CMCopyDictionaryOfAttachments(NULL, sampleBuffer, kCMAttachmentMode_ShouldPropagate);
     NSDictionary *metadata = ((__bridge_transfer NSDictionary *)metadataRef);
     NSData *processedJPEG = [self createImageDataFromImage:processedImage metaData: metadata];
@@ -748,11 +912,11 @@ cameraTorchMode = _cameraTorchMode;
         if ([self.delegate respondsToSelector:@selector(cameraController:didFinishCapturingImageData:)]) {
             [self.delegate cameraController:self didFinishCapturingImageData:processedJPEG];
             self.isCapturingImage = NO;
+        }else{
+            dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
+            });
         }
-        
-        dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-            [self _processCameraPhoto:processedImage needsPreviewRotation:needsPreviewRotation imageOrientation:outputImageOrientation previewOrientation:previewOrientation];
-        });
     }
 #endif
 }
@@ -783,7 +947,10 @@ cameraTorchMode = _cameraTorchMode;
     }
     
     if (!_movieWriter) {
-        NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:@"Documents/Movie.m4v"];
+        NSDateFormatter *formatter = [NSDateFormatter new];
+        [formatter setDateFormat:@"yyyy-MM-dd HH:mm:ss"];
+        NSString *path = [NSString stringWithFormat:@"Documents/%@.M4V", [formatter stringFromDate:[NSDate date]]];
+        NSString *pathToMovie = [NSHomeDirectory() stringByAppendingPathComponent:path];
         unlink([pathToMovie UTF8String]); // If a file already exists, AVAssetWriter won't let you record new frames, so delete the old movie
         movieURL = [NSURL fileURLWithPath:pathToMovie];
         
@@ -792,15 +959,13 @@ cameraTorchMode = _cameraTorchMode;
         
         long width  = [[outputSettings objectForKey:@"Width"]  longValue];
         long height = [[outputSettings objectForKey:@"Height"] longValue];
-        
-        if (width > 1920) {
-            width = 1920;
+        long maxWidth = 1920;
+        if (width > maxWidth) {
+            double ratio = (double)height / (double)width;
+            width = maxWidth;
+            height = width * ratio;
         }
         
-        if (height > 1080) {
-            height = 1080;
-        }
-                
         switch ([self _outputImageOrientation]) {
             case UIImageOrientationUp:
             case UIImageOrientationDown:
@@ -1174,6 +1339,7 @@ cameraTorchMode = _cameraTorchMode;
 - (BOOL)handleTapFocusAtPoint:(CGPoint)touchPoint
 {
     if ([AVCaptureDevice isPointFocusAvailableForCameraDevice:self.cameraDevice]) {
+        isFaceDetecting = NO;
         
         CGPoint pointOfInterest = [self _focusPointOfInterestForTouchPoint:touchPoint];
         

@@ -140,7 +140,7 @@
     
 - (CGFloat)videoMaxZoomFactor
 {
-    return MIN(self.activeFormat.videoMaxZoomFactor, 4.f);
+    return MIN(self.activeFormat.videoMaxZoomFactor, 10.f);
 }
 
 - (BOOL)zoomToScale:(CGFloat)zoomScale
